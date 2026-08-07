@@ -1,0 +1,115 @@
+/* Phosphor, the same palette pecu and the launchpad site wear. */
+
+:root {
+  --frame: #008700;
+  --title: #00ff00;
+  --label: #8a8a8a;
+  --value: #d7ffd7;
+  --accent: #5fff87;
+  --muted: #585858;
+  --warn: #ffaf00;
+  --danger: #ff5f5f;
+  --bg: #000600;
+  --bg-panel: #010d01;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 0.9rem;
+  min-width: 320px;
+  background: var(--bg);
+  color: var(--value);
+  font: 13px/1.5 var(--mono);
+}
+
+h1 {
+  margin: 0 0 0.7rem;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--title);
+}
+
+.panel {
+  border: 1px solid var(--frame);
+  background: var(--bg-panel);
+  padding: 0.6rem 0.7rem;
+  margin-bottom: 0.7rem;
+}
+.panel-title {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--title);
+  margin: 0 0 0.45rem;
+}
+
+.row { display: flex; justify-content: space-between; gap: 0.8rem; padding: 0.2rem 0; }
+.row + .row { border-top: 1px dotted #00350033; }
+.row-label { color: var(--label); flex: 0 0 auto; }
+.row-value { text-align: right; word-break: break-all; }
+
+.muted { color: var(--muted); }
+.warn { color: var(--warn); }
+.danger { color: var(--danger); }
+.accent { color: var(--accent); }
+.small { font-size: 11px; }
+.num { font-variant-numeric: tabular-nums; }
+
+.origin {
+  border-left: 2px solid var(--warn);
+  padding: 0.35rem 0.6rem;
+  color: var(--warn);
+  margin-bottom: 0.7rem;
+  word-break: break-all;
+}
+
+label { display: block; color: var(--label); font-size: 11px; margin-bottom: 0.15rem; }
+
+input, select {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--frame);
+  color: var(--value);
+  font: inherit;
+  padding: 0.4rem 0.5rem;
+  margin-bottom: 0.6rem;
+}
+input:focus-visible, select:focus-visible, button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.buttons { display: flex; gap: 0.5rem; }
+
+button {
+  flex: 1;
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font: inherit;
+  font-weight: 700;
+  padding: 0.45rem 0.8rem;
+  cursor: pointer;
+}
+button.secondary { border-color: var(--muted); color: var(--label); }
+button:hover:not(:disabled) { background: #04200420; }
+button:disabled { border-color: var(--muted); color: var(--muted); cursor: progress; }
+
+.status { margin-top: 0.6rem; min-height: 1.2em; }
+
+.keylist { display: flex; flex-direction: column; gap: 0.35rem; }
+.keyrow { border: 1px solid var(--frame); padding: 0.4rem 0.55rem; }
+.keyrow-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+.keyrow .addr { color: var(--muted); font-size: 11px; word-break: break-all; }
+
+.holdings { margin-top: 0.4rem; border-top: 1px dotted #00350033; padding-top: 0.3rem; }
+.holding { display: flex; justify-content: space-between; gap: 0.6rem; padding: 0.1rem 0; }
+.holding .num { font-variant-numeric: tabular-nums; color: var(--value); }
+
+hr { border: none; border-top: 1px solid var(--frame); margin: 0.8rem 0; }
+
+.holdings-head { margin-top: 0.35rem; padding-top: 0.25rem; border-top: 1px dotted #00350033; }

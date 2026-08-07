@@ -1,0 +1,13 @@
+node_modules/
+package-lock.json
+test-results/
+playwright-report/
+.DS_Store
+*.tmp.mjs
+
+# Build output. Reproduce with `npm run build:wasm` — the crate is pinned by
+# revision, so the bytes are determined by the lockfile and the pin, not by
+# whoever ran it last.
+src/vendor/
+wasm/target/
+wasm/Cargo.lock

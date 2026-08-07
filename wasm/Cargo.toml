@@ -1,0 +1,39 @@
+# A thin cdylib wrapper so `wasm-pack` has something to build.
+#
+# It adds nothing. `pub use verus_wasm::*` re-exports the SDK's bindings so
+# wasm-bindgen picks up their descriptors and emits the JS glue; the crypto,
+# the transaction serialisation and the signing all come from the SDK
+# unchanged. If this crate ever grows logic of its own, that is a bug — the
+# whole point is that the bytes this wallet signs are the SDK's bytes.
+#
+# Pinned to the same revision pecu uses, so the CLI and the wallet cannot drift
+# apart and produce different transactions from the same inputs.
+
+[package]
+name = "verus-wallet-wasm"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Pinned to the PR branch that adds `planSendTokenFromIdentity`
+# (chainvue/verus-rust-sdk#128), not to `main`: the binding is the only way to
+# move a non-mintable token off the identity that holds its supply, and the
+# launch flow cannot complete without it.
+#
+# Move this to the merge commit on `main` once #128 lands. A path dependency
+# was used while writing it and is deliberately not committed — it points at
+# one machine and silently picks up whatever that checkout is on.
+verus-wasm = { git = "https://github.com/chainvue/verus-rust-sdk", rev = "9263ee2" }
+
+[profile.release]
+# The module ships to a browser, so size is a feature. `opt-level = "s"` and LTO
+# cost compile time once and save download on every install.
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"

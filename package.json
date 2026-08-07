@@ -1,0 +1,15 @@
+{
+  "name": "verus-launchpad-wallet",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Non-custodial Verus browser wallet. Keys stay local; every transaction is shown built before it is broadcast.",
+  "license": "Apache-2.0",
+  "scripts": {
+    "build:wasm": "cd wasm && wasm-pack build --target web --out-dir ../src/vendor/verus-wasm --out-name verus_wasm --release",
+    "test": "playwright test --config tests/playwright.config.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
+  }
+}

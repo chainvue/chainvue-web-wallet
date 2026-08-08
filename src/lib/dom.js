@@ -36,3 +36,22 @@ export function row(label, value) {
 export function panel(title, children) {
   return el('div', { class: 'panel' }, [el('div', { class: 'panel-title' }, title), ...[].concat(children)]);
 }
+
+/**
+ * A panel that stays shut until it is asked for.
+ *
+ * Chrome caps a toolbar popup at 600px and scrolls past that. The popup was
+ * rendering 735px, of which 426 were the create-key and import-key forms —
+ * setup you do once, occupying most of a window you open to check a balance.
+ *
+ * Uses `<details>`, so keyboard and screen-reader behaviour comes from the
+ * platform rather than from a click handler and an aria attribute.
+ */
+export function foldout(title, children, { open = false } = {}) {
+  const node = el('details', { class: 'panel foldout' }, [
+    el('summary', { class: 'panel-title' }, title),
+    ...[].concat(children),
+  ]);
+  if (open) node.open = true;
+  return node;
+}

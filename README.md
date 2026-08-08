@@ -72,7 +72,7 @@ Then in Chrome: `chrome://extensions` → **Developer mode** → **Load unpacked
 npm test
 ```
 
-Eight end-to-end tests in a real browser with the extension loaded: the wasm
+28 end-to-end tests in a real browser with the extension loaded: the wasm
 module instantiating under the extension CSP, key creation deriving a real
 `R…` address, the sealed envelope not containing the WIF, a wrong passphrase
 failing, the provider surface being exactly `{isVerusWallet, request}` and
@@ -80,7 +80,14 @@ frozen, unknown methods being refused, a request with no key being refused
 before any window opens, and the launchpad site swapping its no-wallet notice
 for the real form.
 
-Three of those tests exist because of bugs they caught:
+Some of those tests exist because of bugs they caught:
+
+- **the popup opened 735px tall and scrolling.** Chrome caps a browser-action
+  popup at 600px. The popup drew the create-key and import-key forms
+  unconditionally — 426px of one-time setup standing in front of the balance
+  every time it was opened. Both now fold away once a key exists, and the
+  everyday view is 384px. The test measures content height at the real 360px
+  width, because how far the text wraps is the whole question.
 
 - **the provider race.** The site checked `window.verus` synchronously. The
   content script injects the provider with a `<script src>` tag, which loads

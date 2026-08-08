@@ -47,6 +47,22 @@ h1 {
   margin: 0 0 0.45rem;
 }
 
+/* A collapsed panel. The title stays a title; only the marker is added. */
+.foldout > summary {
+  cursor: pointer;
+  margin: 0;
+  list-style: none;
+}
+.foldout > summary::-webkit-details-marker { display: none; }
+.foldout > summary::before {
+  content: '+ ';
+  color: var(--frame);
+}
+.foldout[open] > summary::before { content: '– '; }
+.foldout[open] > summary { margin-bottom: 0.45rem; }
+.foldout > summary:hover { color: var(--accent); }
+.foldout > summary:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+
 .row { display: flex; justify-content: space-between; gap: 0.8rem; padding: 0.2rem 0; }
 .row + .row { border-top: 1px dotted #00350033; }
 .row-label { color: var(--label); flex: 0 0 auto; }

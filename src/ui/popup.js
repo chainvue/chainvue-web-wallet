@@ -1,7 +1,7 @@
 // Key management and balance. No page can reach any of this.
 
 import init, { Key } from '../vendor/verus-wasm/verus_wasm.js';
-import { el, mount, row, panel } from '../lib/dom.js';
+import { el, mount, row, panel, foldout } from '../lib/dom.js';
 import {
   NETWORKS,
   currentNetwork,
@@ -26,13 +26,19 @@ async function render() {
   const keys = await list();
   const pending = await pendingList(net.label);
 
+  // Setup is folded away once there is a key to use. Chrome caps a toolbar
+  // popup at 600px and scrolls past it; rendering both forms unconditionally
+  // put 426px of one-time setup in front of the balance every time, and the
+  // window opened 735px tall and scrolling.
+  const firstRun = keys.length === 0;
+
   mount(
     root,
     networkPicker(net),
     keys.length ? keysPanel(keys, net) : el('p', { class: 'muted' }, 'no keys yet'),
     pending.length ? pendingPanel(pending, net) : null,
     el('hr'),
-    createPanel(),
+    createPanel(firstRun),
     importPanel(),
   );
 }
@@ -212,7 +218,7 @@ async function appendIdentities(net, address, container) {
   );
 }
 
-function createPanel() {
+function createPanel(open = false) {
   const label = el('input', { type: 'text', placeholder: 'label' });
   const pass = el('input', { type: 'password', placeholder: 'passphrase', autocomplete: 'new-password' });
   const status = el('div', { class: 'status small' });
@@ -244,7 +250,7 @@ function createPanel() {
     'create key',
   );
 
-  return panel('new key', [label, pass, el('div', { class: 'buttons' }, [go]), status]);
+  return foldout('new key', [label, pass, el('div', { class: 'buttons' }, [go]), status], { open });
 }
 
 function importPanel() {
@@ -277,7 +283,7 @@ function importPanel() {
     'import',
   );
 
-  return panel('import a WIF', [wif, label, pass, el('div', { class: 'buttons' }, [go]), status]);
+  return foldout('import a WIF', [wif, label, pass, el('div', { class: 'buttons' }, [go]), status]);
 }
 
 boot().catch((error) => mount(root, el('p', { class: 'danger' }, error?.message ?? String(error))));

@@ -802,3 +802,48 @@ test('a launch request with no key is refused before any window opens', async ()
     expect(context.pages().length, 'no approval window should have opened').toBe(before);
   });
 });
+
+test('the toolbar popup fits inside Chrome without scrolling', async () => {
+  // Chrome caps a browser-action popup at 600px tall and scrolls past that.
+  // The popup rendered 735px because it drew the create-key and import-key
+  // forms unconditionally — 426px of one-time setup in front of the balance,
+  // every time it was opened. Both are folded away once a key exists.
+  //
+  // Measured at the real 360px width, since content height depends on wrapping.
+  const CHROME_POPUP_MAX = 600;
+
+  await withExtension(async ({ context, extensionId }) => {
+    const popup = await context.newPage();
+    // Tall viewport so the measurement is the CONTENT, not the window: an
+    // element's height cannot be read past the bottom of a short one.
+    await popup.setViewportSize({ width: 360, height: 3000 });
+    await popup.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
+    await expect(popup.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+
+    const height = () => popup.evaluate(() => Math.ceil(document.body.getBoundingClientRect().height));
+
+    // First run: setup has to be reachable without hunting for it, so the
+    // create form is open. It still has to fit.
+    const fresh = await height();
+    expect(fresh, `first run renders ${fresh}px`).toBeLessThan(CHROME_POPUP_MAX);
+    await expect(popup.locator('details.foldout').first()).toHaveAttribute('open', '');
+
+    await popup.locator('input[placeholder="label"]').first().fill('probe');
+    await popup.locator('input[placeholder="passphrase"]').first().fill('correct horse battery');
+    await popup.getByRole('button', { name: 'create key' }).click();
+    await expect(popup.getByText('probe')).toBeVisible({ timeout: 15_000 });
+
+    // Once there is a key, the everyday view is the balance — setup folds away
+    // and must not be occupying the window any more.
+    const settled = await height();
+    expect(settled, `with a key renders ${settled}px`).toBeLessThan(CHROME_POPUP_MAX);
+    expect(settled).toBeLessThan(fresh);
+    for (const fold of await popup.locator('details.foldout').all()) {
+      expect(await fold.getAttribute('open')).toBeNull();
+    }
+
+    // Folded away, not deleted: the forms still work when asked for.
+    await popup.getByText('import a WIF').click();
+    await expect(popup.locator('input[placeholder="WIF"]')).toBeVisible();
+  });
+});

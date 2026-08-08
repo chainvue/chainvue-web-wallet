@@ -20,15 +20,10 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# Pinned to the PR branch that adds `planSendTokenFromIdentity`
-# (chainvue/verus-rust-sdk#128), not to `main`: the binding is the only way to
-# move a non-mintable token off the identity that holds its supply, and the
-# launch flow cannot complete without it.
-#
-# Move this to the merge commit on `main` once #128 lands. A path dependency
-# was used while writing it and is deliberately not committed — it points at
-# one machine and silently picks up whatever that checkout is on.
-verus-wasm = { git = "https://github.com/chainvue/verus-rust-sdk", rev = "9263ee2" }
+# Pinned by revision, never by branch. `planSendTokenFromIdentity` (#128) is
+# the only way to move a non-mintable token off the identity holding its
+# supply, so the launch flow depends on this commit being exactly this commit.
+verus-wasm = { git = "https://github.com/chainvue/verus-rust-sdk", rev = "2fbbee0" }
 
 [profile.release]
 # The module ships to a browser, so size is a feature. `opt-level = "s"` and LTO

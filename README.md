@@ -66,6 +66,30 @@ npm run build:wasm      # ~20s, needs rustup + wasm-pack + wasm32-unknown-unknow
 Then in Chrome: `chrome://extensions` → **Developer mode** → **Load unpacked**
 → pick this directory.
 
+## Packaging for the Chrome Web Store
+
+```sh
+npm run package        # build:wasm, stage, verify, zip
+```
+
+Leaves `dist/unpacked/` — load that in `chrome://extensions` to check the real
+thing — and `dist/verus-launchpad-wallet-<version>.zip`, which is what gets
+uploaded. The store takes a **zip**, never a CRX: Google signs the upload and
+produces the CRX itself. `manifest.json` must sit at the zip root, which is why
+the script zips from inside the staging directory rather than zipping a folder.
+
+Staging exists because the extension root is the repo root, and the repo root is
+about 300 MB — `wasm/target` alone is 285. The payload is 1.1 MB, 428 KB zipped.
+
+The script refuses to produce a zip if the wasm module is missing (it is
+gitignored, so a fresh clone has none), if `manifest.json` promises a file that
+is not there, or if the two `version` fields disagree. `npm run package:zip`
+skips the ~20s Rust build when `src/vendor/` is already current.
+
+`npm run icons` regenerates `icons/` — placeholders in the same phosphor palette
+as everything else, drawn as rectangles so they stay crisp at 16px. Replace them
+with real artwork before any public listing.
+
 ## Tests
 
 ```sh

@@ -5,6 +5,9 @@ playwright-report/
 .DS_Store
 *.tmp.mjs
 
+# Store packaging output. Rebuild with `npm run package`.
+dist/
+
 # Build output. Reproduce with `npm run build:wasm` — the crate is pinned by
 # revision, so the bytes are determined by the lockfile and the pin, not by
 # whoever ran it last.

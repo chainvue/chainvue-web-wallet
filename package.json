@@ -7,6 +7,9 @@
   "license": "Apache-2.0",
   "scripts": {
     "build:wasm": "cd wasm && wasm-pack build --target web --out-dir ../src/vendor/verus-wasm --out-name verus_wasm --release",
+    "icons": "node scripts/icons.mjs",
+    "package": "npm run build:wasm && node scripts/package.mjs",
+    "package:zip": "node scripts/package.mjs",
     "test": "playwright test --config tests/playwright.config.mjs"
   },
   "devDependencies": {

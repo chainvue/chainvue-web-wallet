@@ -90,6 +90,30 @@ skips the ~20s Rust build when `src/vendor/` is already current.
 as everything else, drawn as rectangles so they stay crisp at 16px. Replace them
 with real artwork before any public listing.
 
+### What is not in the box
+
+Packaging is the easy half. [`store/listing.md`](store/listing.md) holds the
+rest, written out to be pasted rather than improvised: the listing copy, the
+single-purpose statement, a justification for each permission — including the
+all-sites content script, which is the one that draws scrutiny — the data-use
+disclosures, and a pre-upload checklist. `npm run listing:check` measures the
+copy against the store's field limits.
+
+[`PRIVACY.md`](PRIVACY.md) is the privacy policy, which is mandatory here rather
+than optional: this stores encrypted private keys, so the review form's
+questions about authentication and financial information both apply. It needs a
+public URL that does not require a login. Still missing after that: a 128×128
+listing icon and at least one 1280×800 screenshot.
+
+Two things will draw review attention. The content script matches `http://*/*`
+and `https://*/*`: all-sites injection is normal for a wallet and is allowed,
+but narrowing `matches` to the origins this actually serves would cut review
+friction. And the [security notes](#security-notes-including-what-is-not-done)
+below are not decoration — an unaudited wallet with mainnet selectable is a poor
+fit for a public listing. **Unlisted** (installable by link, not discoverable)
+or **Private** (named testers) are reviewed the same way and can be promoted to
+public later without creating a new item.
+
 ## Tests
 
 ```sh

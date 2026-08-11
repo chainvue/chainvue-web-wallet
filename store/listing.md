@@ -18,7 +18,7 @@ Field limits are the store's, checked with `node scripts/listing-check.mjs`.
 ### Item name — 75 max
 
 ```
-Verus Launchpad Wallet
+chainvue web wallet
 ```
 
 ### Summary — 132 max
@@ -31,10 +31,17 @@ Non-custodial Verus wallet. Keys encrypted in your browser; every transaction sh
 
 **Developer Tools.**
 
-Not a neutral choice. This is the companion to a launchpad and it is unaudited;
+Not a neutral choice. This is a developer-facing tool and it is unaudited;
 listing it where developers look, rather than under something that reads as
 consumer finance, sets the right expectation about who it is for. Revisit after
 an audit, not before.
+
+> **The name drops "Verus", and store search will notice.** People look for
+> "verus wallet". The word still appears in the summary, the description and the
+> manifest description, all of which are indexed — but the item name is weighted
+> most heavily, so expect to be found by brand rather than by chain. That is a
+> reasonable trade for a house name across chainvue's tools; it is a trade, not
+> a free move.
 
 ### Language
 
@@ -44,10 +51,9 @@ English (UK spelling throughout the UI — "sanitise", "serialisation" — so pi
 ### Detailed description — 16,000 max
 
 ```
-Verus Launchpad Wallet is a non-custodial wallet for the Verus blockchain. Your
-keys are generated and encrypted in your own browser. There is no account, no
-server, and no method — anywhere in the extension — that hands a key back to a
-website.
+A non-custodial wallet for the Verus blockchain. Your keys are generated and
+encrypted in your own browser. There is no account, no server, and no method —
+anywhere in the extension — that hands a key back to a website.
 
 TWO-STAGE APPROVAL
 

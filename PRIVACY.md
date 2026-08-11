@@ -1,6 +1,6 @@
 # Privacy policy
 
-**Verus Launchpad Wallet**
+**chainvue web wallet**
 Last updated: 12 August 2026
 
 ## The short version

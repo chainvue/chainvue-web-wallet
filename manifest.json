@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Verus Launchpad Wallet",
+  "name": "chainvue web wallet",
   "version": "0.1.0",
   "description": "Non-custodial Verus wallet. Keys stay in the browser; every transaction is shown decoded before it is signed.",
   "minimum_chrome_version": "116",
@@ -35,7 +35,7 @@
 
   "action": {
     "default_popup": "src/ui/popup.html",
-    "default_title": "Verus Launchpad Wallet"
+    "default_title": "chainvue web wallet"
   },
 
   "content_security_policy": {

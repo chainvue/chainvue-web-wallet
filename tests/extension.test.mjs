@@ -847,3 +847,77 @@ test('the toolbar popup fits inside Chrome without scrolling', async () => {
     await expect(popup.locator('input[placeholder="WIF"]')).toBeVisible();
   });
 });
+
+test('a loaded popup does not overflow its width', async () => {
+  // Chrome sizes a toolbar popup to its content, and the window is on screen
+  // before the content is finished — wasm has to instantiate, then balances are
+  // fetched per key. So a row that cannot shrink widens the WINDOW a moment
+  // after it opened, and because the popup hangs off the toolbar icon at the
+  // top right, it grows leftwards. It reads as the wallet sliding sideways.
+  //
+  // The cause is that a flex child defaults to `min-width: auto` and so refuses
+  // to shrink below its longest unbreakable run. A currency id is 34 characters
+  // with nothing to break on, and `currencyNames` falls back to the raw id
+  // whenever a lookup fails — so one unresolved name did it.
+  //
+  // The height test above measures an empty wallet and a bare key. Neither has
+  // holdings, because holdings arrive asynchronously, which is exactly why this
+  // went unnoticed: the state that breaks is the state that takes longest to
+  // appear. This one renders holdings directly rather than waiting on a node.
+  await withExtension(async ({ context, extensionId }) => {
+    const popup = await context.newPage();
+    await popup.setViewportSize({ width: 360, height: 900 });
+    await popup.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
+    await expect(popup.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+
+    const measured = await popup.evaluate(async () => {
+      const { el, mount, panel } = await import('../lib/dom.js');
+      const UNRESOLVED = 'iFhna4jLJVCwZuLmqNCoDAJ6Xx3ZeCQBTX';
+      const holding = (label, amount) =>
+        el('div', { class: 'holding' }, [
+          el('span', { class: 'value' }, label),
+          el('span', { class: 'num' }, amount),
+        ]);
+
+      mount(
+        document.getElementById('root'),
+        panel(
+          'keys',
+          el('div', { class: 'keylist' }, [
+            el('div', { class: 'keyrow' }, [
+              el('div', { class: 'keyrow-head' }, [
+                el('div', {}, [
+                  // A label is whatever the user typed, and they can type a lot.
+                  el('div', { class: 'accent' }, 'a-very-long-key-label-someone-typed'),
+                  el('div', { class: 'addr' }, 'RXdSvjZgRrNjtxVHEm13TH1pVTjt1obzKU'),
+                ]),
+                el('button', { class: 'secondary' }, 'remove'),
+              ]),
+              el('div', { class: 'holdings muted small' }, [
+                holding('VRSCTEST', '786.99'),
+                holding(UNRESOLVED, '1,234.5678'),
+                el('div', { class: 'holdings-head muted small' }, 'held by your identities'),
+                holding(
+                  [UNRESOLVED, el('span', { class: 'muted small' }, '  launchy-basket@')],
+                  '1,000,000,000',
+                ),
+              ]),
+            ]),
+          ]),
+        ),
+      );
+
+      const overflow = (node) => node.scrollWidth - Math.ceil(node.getBoundingClientRect().width);
+      return {
+        documentWidth: document.documentElement.scrollWidth,
+        worstRow: Math.max(...[...document.querySelectorAll('.holding')].map(overflow)),
+        worstHead: Math.max(...[...document.querySelectorAll('.keyrow-head')].map(overflow)),
+      };
+    });
+
+    // Measured at 33px of overflow before the fix.
+    expect(measured.worstRow, 'a holdings row overflows its panel').toBeLessThanOrEqual(0);
+    expect(measured.worstHead, 'the key label overflows its row').toBeLessThanOrEqual(0);
+    expect(measured.documentWidth, 'the document is wider than the popup').toBe(360);
+  });
+});

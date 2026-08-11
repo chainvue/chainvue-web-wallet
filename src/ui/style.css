@@ -16,10 +16,31 @@
 
 * { box-sizing: border-box; }
 
+/*
+ * Chrome sizes a toolbar popup to its content, and the window is already on
+ * screen before the content is finished: wasm has to instantiate, and balances
+ * are fetched per key after that. So anything that changes the layout late
+ * changes the WINDOW late, and the user sees it happen.
+ *
+ * Two things did. A wallet with a few currencies passes 600px — Chrome's cap —
+ * and gained a scrollbar on that late render, which narrowed the content area
+ * and shifted everything sideways. And a row that could not shrink pushed the
+ * document wider than the popup.
+ *
+ * `scrollbar-gutter: stable` reserves the gutter from the first paint, so the
+ * scrollbar arriving costs nothing. The width is pinned here rather than on
+ * `body` so that reservation comes out of the 360px instead of being added to
+ * it, and `overflow-x: hidden` makes it structural rather than a promise.
+ */
+html {
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+
 body {
   margin: 0;
   padding: 0.9rem;
-  min-width: 320px;
+  min-width: 0;
   background: var(--bg);
   color: var(--value);
   font: 13px/1.5 var(--mono);
@@ -120,11 +141,26 @@ button:disabled { border-color: var(--muted); color: var(--muted); cursor: progr
 .keylist { display: flex; flex-direction: column; gap: 0.35rem; }
 .keyrow { border: 1px solid var(--frame); padding: 0.4rem 0.55rem; }
 .keyrow-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }
+.keyrow-head > :first-child { min-width: 0; }
+.keyrow .accent { overflow-wrap: anywhere; }
 .keyrow .addr { color: var(--muted); font-size: 11px; word-break: break-all; }
 
 .holdings { margin-top: 0.4rem; border-top: 1px dotted #00350033; padding-top: 0.3rem; }
 .holding { display: flex; justify-content: space-between; gap: 0.6rem; padding: 0.1rem 0; }
-.holding .num { font-variant-numeric: tabular-nums; color: var(--value); }
+
+/*
+ * A flex child defaults to `min-width: auto`, which means it refuses to shrink
+ * below its longest unbreakable run. A currency id is 34 characters with
+ * nothing to break on, and one unresolved name was enough to push the row past
+ * the panel. `overflow-wrap: anywhere` is the variant that lowers the
+ * min-content width; `break-word` would not.
+ *
+ * The amount keeps its natural width — it is short, and a wrapped balance is
+ * worse than a wrapped name.
+ */
+.holding > * { min-width: 0; }
+.holding > :first-child { overflow-wrap: anywhere; }
+.holding .num { flex: 0 0 auto; font-variant-numeric: tabular-nums; color: var(--value); }
 
 hr { border: none; border-top: 1px solid var(--frame); margin: 0.8rem 0; }
 

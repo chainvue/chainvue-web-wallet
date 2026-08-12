@@ -156,9 +156,19 @@ Four worth having, in this order — the first is the one most people see:
    registration is visible and recoverable.
 
 Four are in `store/screenshots/`, at 1280×800: `balances.png`, `approve.png`,
-`send.png`, `claim.png`. Each is the real UI captured from the loaded extension
-and composed on the wallet's own ground, with a short caption that adds
-something rather than repeating the description.
+`send.png`, `receive.png`. Each is the real UI captured from the loaded
+extension and composed on the wallet's own ground, with a short caption that
+adds something rather than repeating the description.
+
+Captured at 4× and composed at 2×, then halved — every step is a reduction, so
+the type stays sharp. Each capture is cropped to the height of what is actually
+drawn; a view longer than the frame fades at the bottom rather than being cut,
+because a hard edge reads as a broken screenshot while a fade reads as a wallet
+you can scroll.
+
+`claim.png` was dropped: the claims-in-progress panel sits below the fold on a
+wallet with real balances, so the screenshot did not show what its caption
+promised.
 
 Still missing: the built transaction, stage two. It needs a funded testnet key
 so the txid and fee are real, and faking one is a policy problem rather than a

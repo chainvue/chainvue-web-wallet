@@ -379,6 +379,10 @@ hr { border: none; border-top: 1px solid var(--frame); margin: 0.8rem 0; }
 /* A select inherits the full-width rule above; as a chip it must not. */
 select.chip { width: auto; max-width: 11rem; padding-right: 1.2rem; }
 .sec-head .chip { flex: 0 0 auto; }
+/* And a chip inside the top bar is a back control, not a banner: `button` has
+   `flex: 1` from the button rule, so without this the "← Send" chip stretched
+   the whole width of the bar. */
+.bar .chip { flex: 0 0 auto; }
 
 /* Controls are chrome, so they take the UI face. Monospace is kept for values,
    where character alignment is the point — a button label is not a value. */

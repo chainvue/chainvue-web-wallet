@@ -3,9 +3,32 @@
 // The wasm module deliberately has no HTTP client compiled in — it builds and
 // signs, JavaScript fetches. This is the fetching half.
 
+/**
+ * `oracle` is where the chain publishes its protocol halts.
+ *
+ * The identity is the chain's own root ID; `upgradeKey` is the VDXF key its
+ * upgrade descriptor sits under in that identity's `contentmultimap`, derived
+ * per chain as `getvdxfid "vrsc::system.upgradedata"
+ * '{"vdxfkey":"<this chain's id>"}'`.
+ *
+ * **The key is chain-specific and MUST NOT be shared.** Reading one chain's key
+ * against another finds an absent entry and reports a halted chain as clear —
+ * which is the failure this whole mechanism exists to prevent. Both values were
+ * resolved against their own node, not typed from memory. See `lib/halt.js`.
+ */
 export const NETWORKS = Object.freeze({
-  VRSCTEST: { label: 'VRSCTEST', node: 'https://api.verustest.net', native: 'VRSCTEST' },
-  VRSC: { label: 'VRSC', node: 'https://api.verus.services', native: 'VRSC' },
+  VRSCTEST: {
+    label: 'VRSCTEST',
+    node: 'https://api.verustest.net',
+    native: 'VRSCTEST',
+    oracle: { identity: 'VRSCTEST@', upgradeKey: 'iH51dFy7vF3LTRuVQvCTVu6QSbYfhTjek8' },
+  },
+  VRSC: {
+    label: 'VRSC',
+    node: 'https://api.verus.services',
+    native: 'VRSC',
+    oracle: { identity: 'VRSC@', upgradeKey: 'iSJ38vYX7qoCtotc9wBHb1vZdR3oTgoHCX' },
+  },
 });
 
 const NETWORK_KEY = 'verus-wallet.network';

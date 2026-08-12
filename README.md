@@ -69,6 +69,15 @@ Routes come from `listcurrencies`, once per window: there is no reverse index on
 chain, and "which baskets hold this currency" is the first question a conversion
 has to answer.
 
+The second question is whether the chain is taking conversions at all. Verus can
+disable them chain-wide, and when it does nothing else changes shape — baskets
+still list, prices still quote, and a conversion still plans, funds and signs.
+The chain then refuses it at broadcast with `bad-txns-failed-precheck`, which
+names neither the switch nor the reason. So the switch itself is read, from the
+chain's notification oracle, and a halt is reported before a passphrase is asked
+for rather than after. `disabledefi` has been in force on VRSCTEST since block
+1,187,000.
+
 ## Build
 
 The wasm module is not committed; build it first.

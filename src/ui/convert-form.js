@@ -13,6 +13,7 @@
 import { el, mount, panel, row } from '../lib/dom.js';
 import { coinsShort } from '../lib/fmt.js';
 import { currencyBalances, currencyNames, rpc } from '../lib/rpc.js';
+import { defiHalt, haltMessage } from '../lib/halt.js';
 import {
   NATIVE_NEEDED,
   QUOTE_DEBOUNCE_MS,
@@ -46,8 +47,10 @@ export function convertForm({ net, address, params, onValidity = () => {} }) {
     counter: null,
     best: null,
     native: null,
-    /** Assumed until the balances say otherwise, so a failed read blocks nothing. */
+    halt: null,
+    /** Both assumed until a reading says otherwise, so a failed read blocks nothing. */
     canPayFees: true,
+    canConvert: true,
   };
 
   const direction = el('select', { 'aria-label': 'direction', onchange: onDirection });
@@ -71,11 +74,15 @@ export function convertForm({ net, address, params, onValidity = () => {} }) {
   /** Whether there is native coin to pay the fees with. A refusal — see `fees`. */
   const fees = el('div', { class: 'danger small' });
 
+  /** Whether the chain is taking conversions at all. A refusal — see `reportHalt`. */
+  const halted = el('div', { class: 'danger small' });
+
   // Its own class, not `status`: the approval window has a `.status` line of its
   // own, and two of them under one selector is a trap for every test that reads
   // "what did the window settle on".
   const estimate = el('div', { class: 'quote small', role: 'status' }, 'reading the chain…');
   const body = el('div', {}, [
+    halted,
     fees,
     el('label', {}, 'direction'),
     direction,
@@ -106,13 +113,16 @@ export function convertForm({ net, address, params, onValidity = () => {} }) {
 
     // Balances are a nicety and the routes are not, so a node that will not
     // answer about the address must not take the form down with it.
-    const [pools, held, nativeDef] = await Promise.all([
+    const [pools, held, nativeDef, halt] = await Promise.all([
       baskets(net.node),
       currencyBalances(net.node, address).catch(() => []),
       rpc(net.node, 'getcurrency', [net.native]).catch(() => null),
+      defiHalt(net),
     ]);
     state.held = new Map(held.map((entry) => [entry.id, entry.amount]));
     state.native = nativeDef?.currencyid ?? null;
+    state.halt = halt;
+    reportHalt();
     reportFees();
 
     state.routes = routesAround(state.anchor, pools);
@@ -152,6 +162,28 @@ export function convertForm({ net, address, params, onValidity = () => {} }) {
   /* ---- the controls ------------------------------------------------------ */
 
   const nameOf = (id) => state.names.get(id) ?? id;
+
+  /**
+   * Whether the chain is taking conversions at all, said before anything else.
+   *
+   * Nothing else on screen can tell. The routes are real, the balances are
+   * real, and the estimate is a real answer from the node — a halted chain
+   * quotes exactly like a running one. Only the switch says otherwise.
+   *
+   * A reading that could not be taken (`null`) is left alone rather than
+   * treated as clear: a chain nobody could ask might be halted, and letting
+   * missing data read as working is the failure this exists to prevent. The
+   * build asks again and refuses there.
+   */
+  function reportHalt() {
+    const message = haltMessage(net, state.halt);
+    if (!message) {
+      mount(halted, null);
+      return;
+    }
+    state.canConvert = !state.halt?.halted;
+    mount(halted, state.halt?.halted ? message : el('span', { class: 'warn' }, message));
+  }
 
   /**
    * Whether the fees can be paid at all, said once and up front.
@@ -351,10 +383,13 @@ export function convertForm({ net, address, params, onValidity = () => {} }) {
         : null,
     );
 
-    onValidity(state.canPayFees && Boolean(chosen()) && value > 0);
+    onValidity(state.canConvert && state.canPayFees && Boolean(chosen()) && value > 0);
   }
 
   function read() {
+    if (!state.canConvert) {
+      throw new Error(`conversions are halted on ${net.label} — the chain would refuse this`);
+    }
     if (!state.canPayFees) throw new Error(`this address has no ${net.native} to pay the fee with`);
     const route = chosen();
     if (!route) throw new Error('no basket routes this pair');

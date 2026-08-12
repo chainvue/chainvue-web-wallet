@@ -205,6 +205,15 @@ test('a native-funded swap gets past every shape check', async () => {
   // Covers `{tokenFunding: undefined}`: converting FROM the native coin leaves
   // the array empty, which is the case that threw "Reflect.get called on
   // non-object".
+  //
+  // Two outcomes count as passing, and both are evidence the request was sound.
+  // On a running chain it reaches funding and fails there. On a chain with
+  // `disabledefi` in force — VRSCTEST since block 1,187,000 — it is refused by
+  // the halt check instead, which sits AFTER currency resolution and the `via`
+  // rules, so getting that far still proves the shape. A malformed request
+  // never reaches either.
+  const HALTED = /conversions are halted/i;
+
   await withWallet(async ({ context, page }) => {
     const out = await buildOnly(context, page, {
       method: 'verus_convert',
@@ -217,7 +226,10 @@ test('a native-funded swap gets past every shape check', async () => {
       }],
     });
     expect(out.status, out.status).not.toMatch(MALFORMED);
-    expect(out.status, `expected a semantic rejection, got: ${out.status}`).toMatch(REACHED_VALIDATION);
+    expect(
+      REACHED_VALIDATION.test(out.status) || HALTED.test(out.status),
+      `expected funding or a halt, got: ${out.status}`,
+    ).toBe(true);
   });
 });
 

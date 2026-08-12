@@ -30,6 +30,7 @@ import { convertForm } from './convert-form.js';
 // checks it can be afforded; two copies would eventually disagree, and the
 // disagreement would surface as a rejected transaction rather than a warning.
 import { transferFee } from '../lib/convert.js';
+import { defiHalt } from '../lib/halt.js';
 import { parseDestination, KIND } from '../lib/address.js';
 
 const root = document.getElementById('root');
@@ -405,6 +406,27 @@ async function dispatch(key, request, net, progress) {
       // settles every contribution together at the start block.
       if (kind === 'preconvert' && via) {
         throw new Error('a preconvert goes straight into the launching currency; it cannot be routed');
+      }
+
+      // Asked once the request is known to be well formed, and before anything
+      // is funded or signed.
+      //
+      // Nothing downstream can tell. With `disabledefi` in force the chain
+      // still reports live baskets, still quotes prices, and still lets a
+      // conversion plan, fund and sign — then refuses it at broadcast with
+      // `bad-txns-failed-precheck`, a message naming neither the switch nor the
+      // reason, after the passphrase. See `lib/halt.js`.
+      //
+      // Deliberately AFTER the shape checks above rather than first: a
+      // malformed request should still be told it is malformed, on a halted
+      // chain as much as on a running one.
+      progress('checking the chain is accepting conversions…');
+      const halt = await defiHalt(net);
+      if (halt?.halted) {
+        throw new Error(
+          `conversions are halted on ${net.label} from block ${halt.activationHeight}. ` +
+            'The chain refuses every one, so nothing would come of signing this.',
+        );
       }
 
       // `tokenFunding` is needed whenever the source is a TOKEN — not only

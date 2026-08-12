@@ -12,7 +12,7 @@
     "package": "npm run build:wasm && node scripts/package.mjs",
     "package:zip": "node scripts/package.mjs",
     "test": "playwright test --config tests/playwright.config.mjs",
-    "test:unit": "node --test tests/convert.test.mjs"
+    "test:unit": "node --test tests/convert.test.mjs tests/halt.test.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1"

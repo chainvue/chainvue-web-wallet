@@ -147,10 +147,33 @@ submission needs.
 
 ## Releases
 
-Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds the zip,
-writes its SHA-256 and publishes both on a GitHub Release. `npm run bump`
-changes the version in `manifest.json` and `package.json` together, and the
-workflow refuses to publish if the tag disagrees with the manifest.
+Two workflows, split along one line: what the version should be, and what the
+artifact is.
+
+`release-please.yml` reads the commit messages and keeps a pull request open
+saying what the next version would be and what changed. Only `feat:` and `fix:`
+(and anything breaking) move the number — a `docs:` or `chore:` commit proposes
+nothing, so editing the README releases nothing. Merging that PR writes
+`CHANGELOG.md`, bumps `package.json` and `manifest.json` together, tags, and
+publishes the release.
+
+Below 1.0 a breaking change bumps the minor rather than the major
+(`bump-minor-pre-major`), because 1.0 should mean audited and on the Chrome Web
+Store rather than a number reached by accident.
+
+The open pull request is the point, not an inconvenience: it is the last look at
+what is about to become public, and it means nothing ships off a commit message
+typed in a hurry.
+
+`release.yml` then builds the extension and attaches the zip and its SHA-256. It
+handles both a release published by release-please and a tag pushed by hand, so
+it creates the release only when one does not already exist and otherwise just
+uploads — and it refuses to publish if the tag disagrees with `manifest.json`.
+`npm run bump` exists for the hand-tagged path.
+
+Only `release-please.yml` uses a third-party action, and it is pinned to a commit
+SHA. It reads commit messages and opens a pull request; it never touches the
+build. Everything that can reach the artifact is first-party.
 
 Built in CI rather than on a laptop on purpose: the artifact then comes from a
 public commit through a process anyone can read, which is what makes the

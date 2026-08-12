@@ -102,16 +102,14 @@ npm test          # end-to-end tests in a real browser
 npm run package   # build the extension into dist/
 ```
 
-Releases are built by GitHub Actions, not by hand, so the download can be
-checked against the source it came from:
+Releases are automatic, and decided by the commit messages. Write
+`fix: …` or `feat: …` and a release is proposed; write `docs: …` and nothing
+happens. A pull request stays open showing the next version and the changelog,
+and merging it is what publishes.
 
-```sh
-npm run bump 0.1.1
-git commit -am "release: 0.1.1" && git tag v0.1.1
-git push && git push --tags
-```
-
-The Rust toolchain is pinned in `wasm/rust-toolchain.toml` and every dependency
-in `wasm/Cargo.lock`, so the same tag rebuilds to the same bytes.
+Builds run in GitHub Actions rather than by hand, so the download can be checked
+against the source it came from — the Rust toolchain is pinned in
+`wasm/rust-toolchain.toml` and every dependency in `wasm/Cargo.lock`, so the
+same tag rebuilds to the same bytes.
 
 [Privacy policy](PRIVACY.md) · Apache-2.0, matching the SDK.

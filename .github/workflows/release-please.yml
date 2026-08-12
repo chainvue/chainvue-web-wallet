@@ -1,0 +1,54 @@
+# Decide the version and write the changelog from the commits themselves.
+#
+# # What triggers a release, and what does not
+#
+# Only `feat:` and `fix:` (and anything marked breaking) cause a version bump.
+# A `docs:` or `chore:` commit changes nothing — push a README edit and this
+# does exactly nothing, which is the point.
+#
+#   fix:        0.1.0 → 0.1.1
+#   feat:       0.1.0 → 0.2.0
+#   feat!:      0.1.0 → 0.2.0   (not 1.0.0 — see below)
+#
+# Below 1.0 a breaking change bumps the minor rather than the major, because
+# 1.0 should mean something here: audited, and on the Chrome Web Store. It is
+# not a number to reach by accident.
+#
+# # How it works
+#
+# This does not publish anything. It keeps a pull request open that says what
+# the next version would be and what changed; merging that PR is what tags the
+# release. That gate is deliberate for a wallet — the last chance to look at
+# what is about to become public — and it means nothing ships because of a
+# commit message typed in a hurry.
+#
+# Merging it creates the tag and the GitHub Release. `release.yml` then builds
+# the extension and attaches the zip and its checksum.
+#
+# # On the third-party action
+#
+# `release.yml` uses only first-party actions on purpose, because it touches the
+# artifact people download. This one does not: it reads commit messages and
+# opens a pull request, and never goes near the build. It is pinned to a commit
+# SHA rather than a tag so the code cannot change under us.
+
+name: release-please
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  propose:
+    runs-on: ubuntu-latest
+    steps:
+      # googleapis/release-please-action v5.0.0
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

@@ -14,6 +14,7 @@ import { el, mount, panel, row } from '../lib/dom.js';
 import { coinsShort } from '../lib/fmt.js';
 import { currencyBalances, currencyNames, rpc } from '../lib/rpc.js';
 import {
+  NATIVE_NEEDED,
   QUOTE_DEBOUNCE_MS,
   SLIPPAGE,
   baskets,
@@ -44,6 +45,9 @@ export function convertForm({ net, address, params, onValidity = () => {} }) {
     spending: Boolean(params.from) && !params.into,
     counter: null,
     best: null,
+    native: null,
+    /** Assumed until the balances say otherwise, so a failed read blocks nothing. */
+    canPayFees: true,
   };
 
   const direction = el('select', { 'aria-label': 'direction', onchange: onDirection });
@@ -64,11 +68,15 @@ export function convertForm({ net, address, params, onValidity = () => {} }) {
   /** Spending more than the address holds. A warning, never a refusal — see below. */
   const shortfall = el('div', { class: 'warn small' });
 
+  /** Whether there is native coin to pay the fees with. A refusal — see `fees`. */
+  const fees = el('div', { class: 'danger small' });
+
   // Its own class, not `status`: the approval window has a `.status` line of its
   // own, and two of them under one selector is a trap for every test that reads
   // "what did the window settle on".
   const estimate = el('div', { class: 'quote small', role: 'status' }, 'reading the chain…');
   const body = el('div', {}, [
+    fees,
     el('label', {}, 'direction'),
     direction,
     el('label', {}, 'the other currency'),
@@ -98,11 +106,14 @@ export function convertForm({ net, address, params, onValidity = () => {} }) {
 
     // Balances are a nicety and the routes are not, so a node that will not
     // answer about the address must not take the form down with it.
-    const [pools, held] = await Promise.all([
+    const [pools, held, nativeDef] = await Promise.all([
       baskets(net.node),
       currencyBalances(net.node, address).catch(() => []),
+      rpc(net.node, 'getcurrency', [net.native]).catch(() => null),
     ]);
     state.held = new Map(held.map((entry) => [entry.id, entry.amount]));
+    state.native = nativeDef?.currencyid ?? null;
+    reportFees();
 
     state.routes = routesAround(state.anchor, pools);
     if (state.routes.length === 0) {
@@ -141,6 +152,55 @@ export function convertForm({ net, address, params, onValidity = () => {} }) {
   /* ---- the controls ------------------------------------------------------ */
 
   const nameOf = (id) => state.names.get(id) ?? id;
+
+  /**
+   * Whether the fees can be paid at all, said once and up front.
+   *
+   * A conversion costs native coin twice over — the transfer fee inside the
+   * reserve transfer, and the miner fee for the transaction carrying it — and
+   * a wallet holding only tokens can pay neither. Without this the wallet
+   * builds a transaction that cannot be accepted, takes a passphrase for it,
+   * and the daemon answers `bad-txns-failed-precheck`: a message that names
+   * neither the fee nor the currency, after the one moment somebody was
+   * willing to sign.
+   *
+   * Exactly zero is a refusal, because zero is not a rounding artefact and no
+   * conversion can come out of it. Merely *low* is a warning: the miner half is
+   * an allowance rather than a quote, and refusing on an estimate would refuse
+   * transactions that would have gone through.
+   */
+  function reportFees() {
+    const balance = state.native ? (state.held.get(state.native) ?? 0) : null;
+    state.canPayFees = balance === null || balance > 0;
+
+    if (balance === null) {
+      // The node would not say what the native currency is. Say nothing rather
+      // than refuse on a reading that was never taken.
+      mount(fees, null);
+      return;
+    }
+    if (balance <= 0) {
+      mount(
+        fees,
+        `this address holds no ${net.native} — a conversion pays its fee in ${net.native}, ` +
+          `so nothing can be converted until it has some`,
+      );
+      return;
+    }
+    if (balance < NATIVE_NEEDED) {
+      mount(
+        fees,
+        el(
+          'span',
+          { class: 'warn' },
+          `only ${coinsShort(balance)} ${net.native} for fees — a conversion needs about ` +
+            `${coinsShort(NATIVE_NEEDED)} for the transfer and the miner`,
+        ),
+      );
+      return;
+    }
+    mount(fees, null);
+  }
 
   function fillDirection() {
     mount(
@@ -291,10 +351,11 @@ export function convertForm({ net, address, params, onValidity = () => {} }) {
         : null,
     );
 
-    onValidity(Boolean(chosen()) && value > 0);
+    onValidity(state.canPayFees && Boolean(chosen()) && value > 0);
   }
 
   function read() {
+    if (!state.canPayFees) throw new Error(`this address has no ${net.native} to pay the fee with`);
     const route = chosen();
     if (!route) throw new Error('no basket routes this pair');
     const request = requestFor({

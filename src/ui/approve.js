@@ -26,15 +26,16 @@ import { find, primary, open as openVault } from '../lib/vault.js';
 import { remember, recall, forget } from '../lib/pending.js';
 import { LOCAL_METHODS, SEND_PATH, PORT } from '../lib/protocol.js';
 import { convertForm } from './convert-form.js';
+// One definition of what a conversion costs. The build pays it and the form
+// checks it can be afforded; two copies would eventually disagree, and the
+// disagreement would surface as a rejected transaction rather than a warning.
+import { RESERVE_TRANSFER_FEE } from '../lib/convert.js';
 import { parseDestination, KIND } from '../lib/address.js';
 
 const root = document.getElementById('root');
 const id = new URLSearchParams(location.search).get('id');
 
 const CONFIRMATIONS_AHEAD = 20; // blocks between now and a launch's start
-
-/** The reserve transfer fee, in native coins. Matches pecu's default. */
-const RESERVE_TRANSFER_FEE = '0.0002';
 
 async function boot() {
   await init();

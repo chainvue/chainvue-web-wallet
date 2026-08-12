@@ -39,6 +39,30 @@ export const SLIPPAGE = 0.01;
 /** How long the amount box settles before the node is asked anything. */
 export const QUOTE_DEBOUNCE_MS = 300;
 
+/**
+ * The reserve transfer fee, in native coins. Matches pecu's default.
+ *
+ * Lives here rather than only in the approval window because two things need
+ * it: the build, which pays it, and the form, which has to tell somebody
+ * whether they can afford to convert at all.
+ */
+export const RESERVE_TRANSFER_FEE = '0.0002';
+
+/**
+ * What a conversion costs in the chain's own coin, beyond the amount itself.
+ *
+ * The transfer fee rides inside the reserve transfer; the miner fee pays for
+ * the transaction carrying it. Both are native, and **a token balance cannot
+ * pay either** — which is the whole reason this figure is worth computing
+ * before anything is signed rather than discovering it as a rejection.
+ *
+ * The miner half is an allowance, not a quote: the real figure depends on the
+ * size of a transaction that does not exist yet.
+ */
+export const MINER_ALLOWANCE = 0.0001;
+
+export const NATIVE_NEEDED = Number(RESERVE_TRANSFER_FEE) + MINER_ALLOWANCE;
+
 /** A basket with the fractional bit set. */
 const FRACTIONAL = 1;
 

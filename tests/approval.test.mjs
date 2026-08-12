@@ -221,7 +221,7 @@ test('a native-funded swap gets past every shape check', async () => {
   });
 });
 
-test('a page can name only the currency and let the wallet ask the rest', async () => {
+test('a page names only the currency, and the wallet asks and checks the rest', async () => {
   // The interactive form. A site knows what somebody is looking at; it cannot
   // know what they hold, so it sends one field and the wallet asks.
   //
@@ -247,30 +247,18 @@ test('a page can name only the currency and let the wallet ask the rest', async 
     await direction.selectOption('receive');
     await approval.locator('#convert-amount').fill('0.1');
 
-    // This key holds nothing, and the form says so before the build does. A
-    // warning rather than a refusal: the balance is one node's snapshot and the
-    // fee comes out of the native coin on top.
-    await expect(approval.getByText(/holds none of this|more than this address holds/)).toBeVisible({
-      timeout: 20_000,
-    });
-
     // An estimate has to land before the floor can be computed.
     await expect(approval.locator('.quote')).toContainText(/estimated|would not price|routes this pair/i, {
       timeout: 40_000,
     });
 
-    await approval.locator('#pass').fill(PASSPHRASE);
-    await approval.getByRole('button', { name: 'build transaction' }).click();
-
-    await expect
-      .poll(async () => (await approval.locator('.status, .panel-title').allTextContents()).join(' | '), {
-        timeout: 60_000,
-      })
-      .toMatch(/built|spendable|insufficient|error|cannot|refus|invalid|unexpected|holds none/i);
-
-    const status = (await approval.locator('.status').textContent()) ?? '';
-    expect(status, status).not.toMatch(MALFORMED);
-    expect(status, `expected a semantic rejection, got: ${status}`).toMatch(REACHED_VALIDATION);
+    // This key holds no VRSCTEST, and a conversion pays its fee in VRSCTEST. So
+    // the form refuses rather than taking a passphrase for a transaction the
+    // chain will answer with `bad-txns-failed-precheck` — a message naming
+    // neither the fee nor the currency, arriving after the one moment somebody
+    // was willing to sign.
+    await expect(approval.getByText(/holds no VRSCTEST/)).toBeVisible({ timeout: 20_000 });
+    await expect(approval.getByRole('button', { name: 'build transaction' })).toBeDisabled();
   });
 });
 

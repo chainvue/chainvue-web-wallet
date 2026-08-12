@@ -221,6 +221,80 @@ test('a native-funded swap gets past every shape check', async () => {
   });
 });
 
+test('a page can name only the currency and let the wallet ask the rest', async () => {
+  // The interactive form. A site knows what somebody is looking at; it cannot
+  // know what they hold, so it sends one field and the wallet asks.
+  //
+  // The key here is real and deliberately unfunded, which is exactly why the
+  // picker lists routes rather than only holdings: an empty wallet must still
+  // be able to reach the build, or this whole path would be untestable.
+  await withWallet(async ({ context, page }) => {
+    page
+      .evaluate(() => {
+        window.verus.request({ method: 'verus_convert', params: [{ into: 'dudecoin' }] }).catch(() => {});
+      })
+      .catch(() => {});
+
+    const approval = await approvalWindow(context);
+
+    // The form fills in from the chain before any passphrase is asked for.
+    const direction = approval.locator('select[aria-label="direction"]');
+    await expect(direction).toBeVisible({ timeout: 40_000 });
+    await expect(direction).toContainText('dudecoin');
+
+    // Receive the anchor, so the counter is what gets spent — the reserve-to-
+    // reserve case, and the one that must carry `via`.
+    await direction.selectOption('receive');
+    await approval.locator('#convert-amount').fill('0.1');
+
+    // This key holds nothing, and the form says so before the build does. A
+    // warning rather than a refusal: the balance is one node's snapshot and the
+    // fee comes out of the native coin on top.
+    await expect(approval.getByText(/holds none of this|more than this address holds/)).toBeVisible({
+      timeout: 20_000,
+    });
+
+    // An estimate has to land before the floor can be computed.
+    await expect(approval.locator('.quote')).toContainText(/estimated|would not price|routes this pair/i, {
+      timeout: 40_000,
+    });
+
+    await approval.locator('#pass').fill(PASSPHRASE);
+    await approval.getByRole('button', { name: 'build transaction' }).click();
+
+    await expect
+      .poll(async () => (await approval.locator('.status, .panel-title').allTextContents()).join(' | '), {
+        timeout: 60_000,
+      })
+      .toMatch(/built|spendable|insufficient|error|cannot|refus|invalid|unexpected|holds none/i);
+
+    const status = (await approval.locator('.status').textContent()) ?? '';
+    expect(status, status).not.toMatch(MALFORMED);
+    expect(status, `expected a semantic rejection, got: ${status}`).toMatch(REACHED_VALIDATION);
+  });
+});
+
+test('a fully specified conversion still builds without asking anything', async () => {
+  // The backwards-compatibility case. Everything the wallet did before the form
+  // existed must still work, or every page already using it breaks.
+  await withWallet(async ({ context, page }) => {
+    page
+      .evaluate(() => {
+        window.verus
+          .request({
+            method: 'verus_convert',
+            params: [{ from: 'VRSCTEST', into: 'dudecoin', via: 'dudebasket', kind: 'reserveToReserve', amount: '0.1' }],
+          })
+          .catch(() => {});
+      })
+      .catch(() => {});
+
+    const approval = await approvalWindow(context);
+    await expect(approval.getByText('what it will do')).toBeVisible({ timeout: 20_000 });
+    expect(await approval.locator('select[aria-label="direction"]').count()).toBe(0);
+  });
+});
+
 test('a request the wallet cannot do is refused by name, not by crashing', async () => {
   await withWallet(async ({ context, page }) => {
     const refused = await page.evaluate(async () => {

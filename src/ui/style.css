@@ -148,6 +148,12 @@ button:disabled { border-color: var(--muted); color: var(--muted); cursor: progr
    this pushes the document past the popup's width. See the note on `html`. */
 .status { margin-top: 0.6rem; min-height: 1.2em; overflow-wrap: anywhere; }
 
+/* The conversion estimate. Same rhythm as `.status` and deliberately not the
+ * same class: the approval window has a status line of its own, and two
+ * elements answering to one selector is a trap for anything reading "what did
+ * this window settle on". */
+.quote { margin-top: 0.6rem; min-height: 1.2em; overflow-wrap: anywhere; }
+
 .keylist { display: flex; flex-direction: column; gap: 0.35rem; }
 .keyrow { border: 1px solid var(--frame); padding: 0.4rem 0.55rem; }
 .keyrow-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; }

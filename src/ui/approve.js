@@ -25,6 +25,7 @@ import { runOnce } from '../lib/driver.js';
 import { find, primary, open as openVault } from '../lib/vault.js';
 import { remember, recall, forget } from '../lib/pending.js';
 import { LOCAL_METHODS, SEND_PATH, PORT } from '../lib/protocol.js';
+import { convertForm } from './convert-form.js';
 import { parseDestination, KIND } from '../lib/address.js';
 
 const root = document.getElementById('root');
@@ -54,7 +55,31 @@ async function boot() {
     );
     return;
   }
-  renderRequest(answer.request);
+  await renderRequest(answer.request);
+}
+
+/**
+ * A conversion the page deliberately left open.
+ *
+ * A site knows which currency somebody is looking at. It does NOT know what
+ * they hold — balances sit behind an address no page is given, and the
+ * launchpad's own RPC proxy does not even allow the call — so a page that fills
+ * in the whole trade is guessing at the one thing that decides whether the
+ * trade is possible at all.
+ *
+ * So a `verus_convert` missing its source or its amount is not a malformed
+ * request; it is a request to ask. Whatever the page DID supply becomes a
+ * starting value. A fully specified one still builds without a question, which
+ * is what this wallet did before the form existed.
+ *
+ * `preconvert` is excluded: there is no market to route through or price
+ * against before a launch, so there is nothing for a form to choose.
+ */
+function interactive(request) {
+  if (request.method !== 'verus_convert') return false;
+  const [params = {}] = request.params;
+  if (params.kind === 'preconvert') return false;
+  return !params.from || !params.amount;
 }
 
 function keepWorkerAwake() {
@@ -95,7 +120,7 @@ function requestHeader(request) {
   ]);
 }
 
-function renderRequest(request) {
+async function renderRequest(request) {
   const net = NETWORKS[request.network] ?? NETWORKS.VRSCTEST;
   const pass = el('input', { type: 'password', id: 'pass', autocomplete: 'current-password' });
   const status = el('div', { class: 'status' });
@@ -103,16 +128,43 @@ function renderRequest(request) {
   const build = el('button', { type: 'button' }, 'build transaction');
   const cancel = el('button', { type: 'button', class: 'secondary' }, 'reject');
 
+  /**
+   * The form that decides what the page left open, or null.
+   *
+   * The address it needs is stored beside the key envelope in the clear, so the
+   * form fills in — balances and all — before anything is decrypted. The
+   * passphrase stays exactly where it was: required to build, and nowhere else.
+   */
+  let form = null;
+  if (interactive(request)) {
+    const envelope = (await find(request.keyLabel)) ?? (await primary());
+    const [params = {}] = request.params;
+    build.disabled = true;
+    form = convertForm({
+      net,
+      address: envelope?.address ?? '',
+      params,
+      onValidity: (ok) => {
+        build.disabled = !ok;
+      },
+    });
+  }
+
   cancel.addEventListener('click', () => reject('the request was rejected'));
   build.addEventListener('click', async () => {
     build.disabled = true;
     cancel.disabled = true;
     mount(status, el('span', { class: 'muted' }, 'unlocking…'));
     try {
-      const built = await buildTransaction(request, net, pass.value, (text) =>
+      // Resolving the form BEFORE the key is touched. What comes out is an
+      // ordinary fully-specified request, so everything downstream — the
+      // dispatch, the two-stage approval, stage two's built panel — is the same
+      // code that has always run, and cannot drift from the headless path.
+      const settled = form ? { ...request, params: [form.read()] } : request;
+      const built = await buildTransaction(settled, net, pass.value, (text) =>
         mount(status, el('span', { class: 'muted' }, text)),
       );
-      renderBuilt(request, net, built);
+      renderBuilt(settled, net, built);
     } catch (error) {
       mount(status, el('span', { class: 'danger' }, error?.message ?? 'could not build the transaction'));
       build.disabled = false;
@@ -123,13 +175,15 @@ function renderRequest(request) {
   mount(
     root,
     requestHeader(request),
-    panel('what it will do', describe(request)),
+    form ? form.node : panel('what it will do', describe(request)),
     panel('signing with', [row('key', request.keyLabel), row('chain', net.label)]),
     el('div', {}, [el('label', { for: 'pass' }, 'passphrase'), pass]),
     el('div', { class: 'buttons' }, [cancel, build]),
     status,
   );
-  pass.focus();
+  // The passphrase is the last thing wanted when there is still a trade to
+  // choose, so the form keeps the focus it opens with.
+  if (!form) pass.focus();
 }
 
 /** What the page claims it wants. Rendered as text, never trusted as truth. */

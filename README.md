@@ -44,6 +44,31 @@ discard.
 
 Stage two exists because a request is a claim and a built transaction is a fact.
 
+## The page names a currency; the wallet asks the rest
+
+```js
+await window.verus.request({ method: 'verus_convert', params: [{ into: 'dudecoin' }] });
+```
+
+That is the whole request. A `verus_convert` missing its source or its amount
+opens a form in the approval window: which of your coins to spend, how much,
+which side of the trade the named currency is on, and an estimate quoted through
+whichever basket pays best.
+
+It works that way because a site cannot know the answer. Balances sit behind an
+address no page is given, so a page that fills the trade in is guessing at the
+one thing that decides whether the trade is possible at all. The wallet has the
+address and can read them.
+
+Whatever the page does supply becomes a starting value, and a fully specified
+request still builds without asking anything — the form is a way of *filling in*
+a request, not a second way of making one, and what it produces goes down the
+same path as before.
+
+Routes come from `listcurrencies`, once per window: there is no reverse index on
+chain, and "which baskets hold this currency" is the first question a conversion
+has to answer.
+
 ## Build
 
 The wasm module is not committed; build it first.

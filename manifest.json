@@ -1,47 +1,51 @@
 {
   "manifest_version": 3,
   "name": "chainvue web wallet",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Non-custodial Verus wallet. Keys stay in the browser; every transaction is shown decoded before it is signed.",
   "minimum_chrome_version": "116",
-
-  "permissions": ["storage"],
-
+  "permissions": [
+    "storage"
+  ],
   "host_permissions": [
     "https://api.verustest.net/*",
     "https://api.verus.services/*"
   ],
-
   "background": {
     "service_worker": "src/background.js",
     "type": "module"
   },
-
   "content_scripts": [
     {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["src/content.js"],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "src/content.js"
+      ],
       "run_at": "document_start",
       "all_frames": false
     }
   ],
-
   "web_accessible_resources": [
     {
-      "resources": ["src/inpage.js"],
-      "matches": ["http://*/*", "https://*/*"]
+      "resources": [
+        "src/inpage.js"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ]
     }
   ],
-
   "action": {
     "default_popup": "src/ui/popup.html",
     "default_title": "chainvue web wallet"
   },
-
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
-
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",

@@ -159,9 +159,16 @@ jobs:
           sha256sum -c chainvue-web-wallet-*.zip.sha256
           ```
 
-          Built by GitHub Actions from this tag, with the Rust toolchain pinned
-          in `wasm/rust-toolchain.toml` and every dependency in
-          `wasm/Cargo.lock`, so the same tag rebuilds to the same bytes.
+          Built by GitHub Actions from this tag.
+
+          The checksum confirms the file you downloaded is the file this
+          workflow published. It is not yet a reproducible-build guarantee:
+          rebuilding the same tag reproduces the zip container and every file in
+          it except the wasm module, which has been observed to differ by a few
+          bytes between otherwise identical CI runs (same commit, same
+          `rustc 1.95.0`, same `wasm-pack 0.13.1`, same `Cargo.lock`). The
+          suspect is `wasm-opt`. Until that is resolved, treat the checksum as
+          integrity for the download, not as proof of provenance.
 
           ## Before you use it
 

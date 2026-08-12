@@ -175,6 +175,31 @@ Only `release-please.yml` uses a third-party action, and it is pinned to a commi
 SHA. It reads commit messages and opens a pull request; it never touches the
 build. Everything that can reach the artifact is first-party.
 
+## Reproducibility
+
+Not achieved yet, and worth stating plainly because a checksum invites the
+assumption that it is.
+
+The **zip container is** reproducible. Two builds used to differ purely because
+they ran at different minutes, since a zip records a modification time per
+entry; every staged file is now stamped with the commit's own time
+(`SOURCE_DATE_EPOCH`, or the commit timestamp) and names are fed to `zip` sorted
+rather than in filesystem order.
+
+The **wasm module is not**. Across four CI builds of the same commit — same
+`rustc 1.95.0`, same `wasm-pack 0.13.1`, same `Cargo.lock` — three produced a
+987,433-byte module and one produced 987,421. Every other file in the archive
+was byte-identical every time.
+
+`codegen-units = 1` and `lto = true` are already set, which should make rustc's
+own output stable, so the suspect is `wasm-opt` — wasm-pack runs it by default
+and it is multi-threaded. Untested; disabling it would trade size for
+determinism and has not been measured.
+
+So the published SHA-256 is integrity for the download — it proves you got what
+CI built — and not yet proof of provenance, which would need a rebuild to land
+on the same hash. For a wallet that distinction is worth closing.
+
 Built in CI rather than on a laptop on purpose: the artifact then comes from a
 public commit through a process anyone can read, which is what makes the
 checksum worth publishing. Two things make the build reproducible and both are

@@ -107,9 +107,10 @@ Releases are automatic, and decided by the commit messages. Write
 happens. A pull request stays open showing the next version and the changelog,
 and merging it is what publishes.
 
-Builds run in GitHub Actions rather than by hand, so the download can be checked
-against the source it came from — the Rust toolchain is pinned in
-`wasm/rust-toolchain.toml` and every dependency in `wasm/Cargo.lock`, so the
-same tag rebuilds to the same bytes.
+Builds run in GitHub Actions rather than by hand, and every release carries a
+SHA-256 so you can check the download is the file CI published. The Rust
+toolchain is pinned in `wasm/rust-toolchain.toml` and every dependency in
+`wasm/Cargo.lock` — but the build is not yet bit-for-bit reproducible; see
+[docs/design.md](docs/design.md#reproducibility).
 
 [Privacy policy](PRIVACY.md) · Apache-2.0, matching the SDK.

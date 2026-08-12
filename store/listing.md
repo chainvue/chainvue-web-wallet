@@ -155,9 +155,14 @@ Four worth having, in this order — the first is the one most people see:
 4. **A claim in progress.** The pending panel, showing that an interrupted
    registration is visible and recoverable.
 
-Shots 1 and 2 need a funded testnet key to look real. Faking them is not worth
-it — a screenshot that does not match what installs is a policy problem, not
-just a taste one.
+Four are in `store/screenshots/`, at 1280×800: `balances.png`, `approve.png`,
+`send.png`, `claim.png`. Each is the real UI captured from the loaded extension
+and composed on the wallet's own ground, with a short caption that adds
+something rather than repeating the description.
+
+Still missing: the built transaction, stage two. It needs a funded testnet key
+so the txid and fee are real, and faking one is a policy problem rather than a
+taste one — a screenshot has to match what installs.
 
 ---
 

@@ -1,0 +1,13 @@
+# The compiler is part of the build, so it is pinned like everything else.
+#
+# A lockfile fixes which source is compiled; it says nothing about what compiles
+# it. Codegen changes between Rust releases, so an unpinned toolchain means the
+# wasm anyone downloads cannot be checked against the wasm anyone else builds
+# from the same tag — which is the whole point of publishing a checksum.
+#
+# Raise this deliberately, and cut a release when you do.
+
+[toolchain]
+channel = "1.95.0"
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"

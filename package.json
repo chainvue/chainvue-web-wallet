@@ -9,6 +9,7 @@
     "build:wasm": "cd wasm && wasm-pack build --target web --out-dir ../src/vendor/verus-wasm --out-name verus_wasm --release",
     "icons": "node scripts/icons.mjs",
     "listing:check": "node scripts/listing-check.mjs",
+    "bump": "node scripts/version.mjs",
     "package": "npm run build:wasm && node scripts/package.mjs",
     "package:zip": "node scripts/package.mjs",
     "test": "playwright test --config tests/playwright.config.mjs",

@@ -1,118 +1,117 @@
-# chainvue-web-wallet
+# chainvue web wallet
 
-A non-custodial Verus wallet as a Chrome extension. Keys are encrypted in the
-browser, transactions are built and signed in WebAssembly, and every one is
-shown *built* — txid, fee, what it burns — before anything is broadcast.
+A Verus wallet that lives in your browser.
 
-## The split
+Your keys are created on your own computer and encrypted with a passphrase you
+choose. They never leave the machine, and there is no account to sign up for.
+Before anything is sent, the wallet shows you the transaction it actually
+built — the real fee, the real destination — and nothing goes to the blockchain
+until you press Broadcast.
 
-```
-page                    extension
-────                    ─────────
-window.verus.request()
-   │
-   ├─ content.js  ── bridge, isolated world; stamps the real origin
-   │     │
-   │     └─ background.js ── routes. no keys, no wasm, signs nothing
-   │            │
-   │            └─ approve.html ── the only place a key is decrypted
-   │                   │            and the only place wasm loads
-   │                   ├─ vault.open()      PBKDF2 600k → AES-GCM
-   │                   ├─ Key.fromWif()     verus-wasm
-   │                   ├─ planLaunch(…)     build + sign, no network in wasm
-   │                   └─ sendrawtransaction
-   ▼
- txid
-```
+**It has not been audited. Please read [Before you trust it](#before-you-trust-it-with-real-money).**
 
-The decrypted key exists for the lifetime of one approval window and is freed in
-a `finally`. The service worker never sees it. The page never sees it. There is
-no method that returns it.
+## What you can do
 
-`wasm/src/lib.rs` is one line — `pub use verus_wasm::*`. Every byte this wallet
-signs comes from the Verus Rust SDK, pinned by revision to the same commit
-`pecu` uses. A wallet that signed differently from the CLI would be a second
-implementation of consensus-critical serialisation, which is the thing worth
-never having twice.
+- Create a wallet, or import one you already have
+- See what you hold — coins, tokens, and anything held by identities you control
+- Receive: copy your address so someone can pay you
+- Send coins or tokens to an address or to a VerusID name like `alice@`
+- Claim a VerusID name
+- Launch a token or a currency, and convert between currencies
 
-## Two-stage approval
+## Install it
 
-Most wallets show you what a page *claims* it wants, then sign it. This one does
-that, and then shows you what it actually *built* — the real txid, the real fee,
-the currency id a launch will create — with nothing yet sent. Broadcast, or
-discard.
+There is no Chrome Web Store listing yet, so you install it yourself. It takes
+about five minutes, and you only build it once.
 
-Stage two exists because a request is a claim and a built transaction is a fact.
+### What you need first
 
-## The page names a currency; the wallet asks the rest
+- [Node.js](https://nodejs.org) 18 or newer
+- [Rust](https://rustup.rs) and `wasm-pack` — the wallet's signing code is
+  compiled from Rust, and it is not shipped pre-built:
 
-```js
-await window.verus.request({ method: 'verus_convert', params: [{ into: 'dudecoin' }] });
-```
+  ```sh
+  curl https://sh.rustup.rs -sSf | sh
+  cargo install wasm-pack
+  ```
 
-That is the whole request. A `verus_convert` missing its source or its amount
-opens a form in the approval window: which of your coins to spend, how much,
-which side of the trade the named currency is on, and an estimate quoted through
-whichever basket pays best.
-
-It works that way because a site cannot know the answer. Balances sit behind an
-address no page is given, so a page that fills the trade in is guessing at the
-one thing that decides whether the trade is possible at all. The wallet has the
-address and can read them.
-
-Whatever the page does supply becomes a starting value, and a fully specified
-request still builds without asking anything — the form is a way of *filling in*
-a request, not a second way of making one, and what it produces goes down the
-same path as before.
-
-Routes come from `listcurrencies`, once per window: there is no reverse index on
-chain, and "which baskets hold this currency" is the first question a conversion
-has to answer.
-
-The second question is whether the chain is taking conversions at all. Verus can
-disable them chain-wide, and when it does nothing else changes shape — baskets
-still list, prices still quote, and a conversion still plans, funds and signs.
-The chain then refuses it at broadcast with `bad-txns-failed-precheck`, which
-names neither the switch nor the reason. So the switch itself is read, from the
-chain's notification oracle, and a halt is reported before a passphrase is asked
-for rather than after. `disabledefi` has been in force on VRSCTEST since block
-1,187,000.
-
-## Build
-
-The wasm module is not committed; build it first.
+### 1. Build it
 
 ```sh
+git clone https://github.com/chainvue/chainvue-web-wallet.git
+cd chainvue-web-wallet
 npm install
-npm run build:wasm    # ~20s, needs rustup + wasm-pack + wasm32-unknown-unknown
-npm test              # 28 end-to-end tests, real browser, extension loaded
+npm run package
 ```
 
-Then `chrome://extensions` → **Developer mode** → **Load unpacked** → this
-directory.
+That leaves a folder called **`dist/unpacked`**. This is the wallet.
 
-`npm run package` builds the Chrome Web Store zip;
-[`store/listing.md`](store/listing.md) has everything else a submission needs.
+### 2. Load it into your browser
 
-## Before trusting it with real money
+1. Open your browser's extensions page:
+   - **Chrome** — `chrome://extensions`
+   - **Brave** — `brave://extensions`
+   - **Edge** — `edge://extensions`
+   - Any other Chromium browser — `chrome://extensions`
+2. Turn on **Developer mode** (a switch, usually top right)
+3. Click **Load unpacked**
+4. Choose the **`dist/unpacked`** folder
 
-- **No audit.** None of this has been reviewed by anyone.
-- **No hardware wallet, no air gap.** `pecu` has the air-gapped flow; this does
-  not.
-- **No spending limits, no allowlist.** Every request opens a window; there is
-  no notion of a trusted site.
-- **The service worker forgets pending approvals** if MV3 stops it while a
-  window is open. The window says so rather than appearing to succeed, but the
-  request is lost and must be retried.
-- **Mainnet is selectable.** Nothing stops you pointing this at real VRSC. On
-  current evidence you should not.
+The wallet icon appears in your toolbar. Pin it so it stays visible.
 
-What *is* done: WebCrypto only — PBKDF2-SHA256 at 600,000 iterations and
-AES-GCM-256, nothing hand-rolled. Entropy from `crypto.getRandomValues`, never
-from the wasm module. The page's request JSON round-tripped before it is looked
-at. The origin taken from the sender's frame, never the message body.
-`window.verus` frozen and non-configurable. Everything rendered through
-`textContent`, because a currency name is chain data and anyone can put a
-currency on the chain.
+### Which browsers work
 
-[`PRIVACY.md`](PRIVACY.md) · Apache-2.0, matching the SDK.
+Any Chromium browser, version 116 or newer — Chrome, Brave, Edge, Opera,
+Vivaldi, Arc.
+
+**Firefox and Safari will not work.** They handle extension background scripts
+differently, so the wallet would need changes before it could load there.
+
+## First time
+
+1. Click the wallet icon and choose a name and a passphrase, then **create key**.
+2. **Write the passphrase down.** It is the only thing that can open your wallet.
+   Nobody — including us — can recover it or reset it for you. If you lose it,
+   the coins are gone.
+3. The wallet starts on **VRSCTEST**, the test network, where the coins are not
+   worth anything. That is the right place to learn it.
+
+To be paid, press **Receive** and copy your address. To pay someone, press
+**Send**.
+
+## Before you trust it with real money
+
+- **No audit.** Nobody has reviewed this code for security.
+- **No hardware wallet support**, and no air-gapped signing.
+- **No spending limits and no trusted sites.** Every request opens a window.
+- **Mainnet is selectable.** Nothing stops you pointing it at real VRSC. On
+  current evidence, you should not.
+
+What is done: the encryption is the browser's own (PBKDF2-SHA256 at 600,000
+iterations, AES-GCM-256) with nothing hand-rolled, and every byte the wallet
+signs comes from the Verus Rust SDK, pinned to the same version the `pecu`
+command-line tool uses.
+
+## For developers
+
+How it is put together, why the approval happens in two stages, and the
+reasoning behind the trust boundaries: **[docs/design.md](docs/design.md)**.
+
+```sh
+npm test          # end-to-end tests in a real browser
+npm run package   # build the extension into dist/
+```
+
+Releases are built by GitHub Actions, not by hand, so the download can be
+checked against the source it came from:
+
+```sh
+npm run bump 0.1.1
+git commit -am "release: 0.1.1" && git tag v0.1.1
+git push && git push --tags
+```
+
+The Rust toolchain is pinned in `wasm/rust-toolchain.toml` and every dependency
+in `wasm/Cargo.lock`, so the same tag rebuilds to the same bytes.
+
+[Privacy policy](PRIVACY.md) · Apache-2.0, matching the SDK.

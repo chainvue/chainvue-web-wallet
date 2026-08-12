@@ -1,5 +1,4 @@
 node_modules/
-package-lock.json
 test-results/
 playwright-report/
 .DS_Store
@@ -8,9 +7,14 @@ playwright-report/
 # Store packaging output. Rebuild with `npm run package`.
 dist/
 
-# Build output. Reproduce with `npm run build:wasm` — the crate is pinned by
-# revision, so the bytes are determined by the lockfile and the pin, not by
-# whoever ran it last.
+# Build output. Reproduce with `npm run build:wasm`.
+#
+# `wasm/Cargo.lock` is deliberately NOT here. The SDK is pinned by revision, but
+# a revision pins only that crate — every transitive dependency underneath it,
+# including the crypto, resolves fresh at build time without a lockfile. Two
+# builds of the same commit could then produce different wasm, which makes a
+# release impossible to verify and contradicts the claim this comment used to
+# make. Committing it is what makes "the bytes are determined by the lockfile
+# and the pin" true.
 src/vendor/
 wasm/target/
-wasm/Cargo.lock

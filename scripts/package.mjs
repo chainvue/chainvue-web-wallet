@@ -21,7 +21,7 @@
 // so the check is here rather than left to discovery.
 
 import { execFileSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, utimesSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -162,12 +162,51 @@ const kb = (n) => `${(n / 1024).toFixed(0)} KB`;
 const zipName = `${pkg.name}-${manifest.version}.zip`;
 const zipPath = join(DIST, zipName);
 
+/**
+ * When the files inside the zip claim to have been written.
+ *
+ * A zip records a modification time per entry, so two builds of the same commit
+ * produce different archives purely because they ran at different minutes —
+ * measured, on two CI runs whose 32 files were byte-for-byte identical while the
+ * zips were not. That makes the published checksum unverifiable by rebuilding,
+ * which is the one thing it exists for.
+ *
+ * So every entry is stamped with the commit's own time. `SOURCE_DATE_EPOCH` is
+ * the cross-ecosystem convention and wins if set; otherwise the commit is asked
+ * for directly. The constant is a last resort for a tarball with no git at all —
+ * arbitrary, but fixed, which is the only property that matters.
+ */
+function sourceDateEpoch() {
+  const declared = Number(process.env.SOURCE_DATE_EPOCH);
+  if (Number.isFinite(declared) && declared > 0) return declared;
+  try {
+    const at = execFileSync('git', ['log', '-1', '--format=%ct'], { cwd: ROOT, encoding: 'utf8' }).trim();
+    if (/^\d+$/.test(at)) return Number(at);
+  } catch {
+    // not a checkout, or no git — fall through
+  }
+  return 946_684_800; // 2000-01-01T00:00:00Z
+}
+
+const epoch = sourceDateEpoch();
+for (const path of staged) utimesSync(path, epoch, epoch);
+
 try {
   // `-X` drops the macOS extended attributes and resource forks that otherwise
   // ride along as `__MACOSX` entries and make a reviewer wonder what they are.
+  //
+  // Names come in sorted on stdin (`-@`) rather than from a directory walk
+  // (`-r`), because the walk's order is the filesystem's and the zip's central
+  // directory records it. That also drops the directory entries, which carry
+  // nothing but a timestamp.
+  //
   // Run from inside the staging directory so `manifest.json` sits at the zip
   // root, which is the one thing the store is strict about.
-  execFileSync('zip', ['-r', '-X', '-9', '-q', zipPath, '.'], { cwd: STAGE });
+  const names = staged
+    .map((path) => posix(relative(STAGE, path)))
+    .sort()
+    .join('\n');
+  execFileSync('zip', ['-X', '-9', '-q', '-@', zipPath], { cwd: STAGE, input: names });
 } catch (error) {
   if (error.code === 'ENOENT') {
     die(

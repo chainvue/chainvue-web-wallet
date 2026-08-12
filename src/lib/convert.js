@@ -42,12 +42,9 @@ export const QUOTE_DEBOUNCE_MS = 300;
 /**
  * The reserve transfer fee, in native coins — and it is **not one number**.
  *
- * A conversion pays 0.0002001. A preconvert pays 0.0002. The difference is ten
- * satoshis and it is the difference between a transaction the chain accepts and
- * `bad-txns-failed-precheck`, which names neither the fee nor the shortfall.
- *
- * Taken from the SDK's own daemon-matching tests, which build each kind and
- * assert the bytes against what the daemon produces:
+ * A conversion carries 0.0002001; a preconvert carries 0.0002. Both come from
+ * the SDK's daemon-matching tests, which build each kind and assert the bytes
+ * against what the daemon itself produces:
  *
  *     a_reserve_into_a_fractional_matches_the_daemon      20_010
  *     a_fractional_into_a_reserve_matches_the_daemon      20_010
@@ -55,10 +52,18 @@ export const QUOTE_DEBOUNCE_MS = 300;
  *     a_preconvert_matches_the_daemon                     20_000
  *     a_burn_matches_the_daemon                           20_000
  *
- * `ReserveTransfer::fee` in the SDK says it plainly: **chain policy, not a
- * constant.** One hard-coded 0.0002 for everything is what made every
- * conversion this wallet built unbroadcastable, in both directions, while
- * leaving sends and preconverts working — which is exactly how it presented.
+ * `ReserveTransfer::fee` in the SDK says it plainly: chain policy, not a
+ * constant.
+ *
+ * # What is established here, and what is not
+ *
+ * What the daemon **charges** is established. What it **refuses** is not:
+ * whether 20_000 on a conversion is actually rejected has never been tested,
+ * and cannot be while `disabledefi` is in force — see `lib/halt.js`. pecu has
+ * used the flat 0.0002 throughout.
+ *
+ * So matching the daemon is chosen as the safe direction rather than the
+ * proven one. Ten satoshis too many cannot fail; ten too few might.
  */
 const CONVERSION_TRANSFER_FEE = '0.0002001';
 const PRECONVERT_TRANSFER_FEE = '0.0002';

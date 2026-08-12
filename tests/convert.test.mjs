@@ -280,7 +280,7 @@ test('a listing that is not a list is not an error', async () => {
 /* ---- the transfer fee, which is not one number ---------------------------- */
 
 /**
- * Ten satoshis, and every conversion this wallet built was rejected for them.
+ * What the daemon charges, which is not one number.
  *
  * The figures come from the SDK's daemon-matching tests, which build each kind
  * and assert the bytes against what the daemon itself produces:
@@ -289,9 +289,9 @@ test('a listing that is not a list is not an error', async () => {
  * `a_reserve_to_reserve_conversion_matches_the_daemon` all pass 20_010, while
  * `a_preconvert_matches_the_daemon` and `a_burn_matches_the_daemon` pass 20_000.
  *
- * Paying the preconvert figure for a conversion is refused with
- * `bad-txns-failed-precheck`, which names neither the fee nor the shortfall —
- * so nothing at runtime will ever tell you this is wrong again.
+ * These pin what is charged. Whether the lower figure is REFUSED on a
+ * conversion is a different claim and is not made here — it has never been
+ * tested, and cannot be while `disabledefi` is in force. See `transferFee`.
  */
 test('a conversion is charged more than a preconvert', () => {
   const sats = (coins) => Math.round(Number(coins) * 1e8);

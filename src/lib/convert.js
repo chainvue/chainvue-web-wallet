@@ -40,13 +40,32 @@ export const SLIPPAGE = 0.01;
 export const QUOTE_DEBOUNCE_MS = 300;
 
 /**
- * The reserve transfer fee, in native coins. Matches pecu's default.
+ * The reserve transfer fee, in native coins — and it is **not one number**.
  *
- * Lives here rather than only in the approval window because two things need
- * it: the build, which pays it, and the form, which has to tell somebody
- * whether they can afford to convert at all.
+ * A conversion pays 0.0002001. A preconvert pays 0.0002. The difference is ten
+ * satoshis and it is the difference between a transaction the chain accepts and
+ * `bad-txns-failed-precheck`, which names neither the fee nor the shortfall.
+ *
+ * Taken from the SDK's own daemon-matching tests, which build each kind and
+ * assert the bytes against what the daemon produces:
+ *
+ *     a_reserve_into_a_fractional_matches_the_daemon      20_010
+ *     a_fractional_into_a_reserve_matches_the_daemon      20_010
+ *     a_reserve_to_reserve_conversion_matches_the_daemon  20_010
+ *     a_preconvert_matches_the_daemon                     20_000
+ *     a_burn_matches_the_daemon                           20_000
+ *
+ * `ReserveTransfer::fee` in the SDK says it plainly: **chain policy, not a
+ * constant.** One hard-coded 0.0002 for everything is what made every
+ * conversion this wallet built unbroadcastable, in both directions, while
+ * leaving sends and preconverts working — which is exactly how it presented.
  */
-export const RESERVE_TRANSFER_FEE = '0.0002';
+const CONVERSION_TRANSFER_FEE = '0.0002001';
+const PRECONVERT_TRANSFER_FEE = '0.0002';
+
+export function transferFee(kind) {
+  return kind === 'preconvert' ? PRECONVERT_TRANSFER_FEE : CONVERSION_TRANSFER_FEE;
+}
 
 /**
  * What a conversion costs in the chain's own coin, beyond the amount itself.
@@ -61,7 +80,7 @@ export const RESERVE_TRANSFER_FEE = '0.0002';
  */
 export const MINER_ALLOWANCE = 0.0001;
 
-export const NATIVE_NEEDED = Number(RESERVE_TRANSFER_FEE) + MINER_ALLOWANCE;
+export const NATIVE_NEEDED = Number(CONVERSION_TRANSFER_FEE) + MINER_ALLOWANCE;
 
 /** A basket with the fractional bit set. */
 const FRACTIONAL = 1;

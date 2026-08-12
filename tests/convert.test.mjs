@@ -28,6 +28,7 @@ import {
   routesAround,
   routesFor,
   toCoinString,
+  transferFee,
 } from '../src/lib/convert.js';
 
 const COIN = 'iCoin';
@@ -274,4 +275,35 @@ test('a listing that is not a list is not an error', async () => {
   // honest, not throw inside a window the reader cannot recover.
   const found = await withListing(null, (node) => baskets(node));
   assert.deepEqual(found, []);
+});
+
+/* ---- the transfer fee, which is not one number ---------------------------- */
+
+/**
+ * Ten satoshis, and every conversion this wallet built was rejected for them.
+ *
+ * The figures come from the SDK's daemon-matching tests, which build each kind
+ * and assert the bytes against what the daemon itself produces:
+ * `a_reserve_into_a_fractional_matches_the_daemon`,
+ * `a_fractional_into_a_reserve_matches_the_daemon` and
+ * `a_reserve_to_reserve_conversion_matches_the_daemon` all pass 20_010, while
+ * `a_preconvert_matches_the_daemon` and `a_burn_matches_the_daemon` pass 20_000.
+ *
+ * Paying the preconvert figure for a conversion is refused with
+ * `bad-txns-failed-precheck`, which names neither the fee nor the shortfall —
+ * so nothing at runtime will ever tell you this is wrong again.
+ */
+test('a conversion is charged more than a preconvert', () => {
+  const sats = (coins) => Math.round(Number(coins) * 1e8);
+
+  for (const kind of ['intoFractional', 'intoReserve', 'reserveToReserve']) {
+    assert.equal(sats(transferFee(kind)), 20_010, `${kind} must pay what the daemon charges`);
+  }
+  assert.equal(sats(transferFee('preconvert')), 20_000);
+});
+
+test('the fee is a coin string the chain will parse', () => {
+  for (const kind of ['intoFractional', 'intoReserve', 'reserveToReserve', 'preconvert']) {
+    assert.match(transferFee(kind), /^0\.\d{1,8}$/, kind);
+  }
 });

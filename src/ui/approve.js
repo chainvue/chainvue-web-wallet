@@ -29,7 +29,7 @@ import { convertForm } from './convert-form.js';
 // One definition of what a conversion costs. The build pays it and the form
 // checks it can be afforded; two copies would eventually disagree, and the
 // disagreement would surface as a rejected transaction rather than a warning.
-import { RESERVE_TRANSFER_FEE } from '../lib/convert.js';
+import { transferFee } from '../lib/convert.js';
 import { parseDestination, KIND } from '../lib/address.js';
 
 const root = document.getElementById('root');
@@ -452,7 +452,11 @@ async function dispatch(key, request, net, progress) {
         // A page that could name the recipient could route a user's swap into
         // its own wallet.
         recipient: key.address(),
-        fee: parseCoins(RESERVE_TRANSFER_FEE),
+        // By kind, not one constant: a conversion is charged ten satoshis more
+        // than a preconvert, and paying the preconvert figure for a conversion
+        // is refused as `bad-txns-failed-precheck` — a message that names
+        // neither the fee nor the shortfall. See `transferFee`.
+        fee: parseCoins(transferFee(kind)),
       };
       if (via) convertRequest.via = via;
       if (tokenFunding?.length) convertRequest.tokenFunding = tokenFunding;

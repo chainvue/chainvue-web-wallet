@@ -79,6 +79,21 @@ export function broadcast(node, hex) {
 }
 
 /**
+ * The `i…` address behind a friendly name.
+ *
+ * The daemon wants one form or the other and refuses the wrong one, and the SDK
+ * wants the address rather than the name wherever it can have it — resolving
+ * here keeps a name lookup out of the signing path. Callers pass a reference
+ * already in the daemon's shape (`name@` or `i…`); see `asIdentityRef`.
+ */
+export async function identityAddress(node, ref) {
+  const holder = await rpc(node, 'getidentity', [ref]);
+  const address = holder?.identity?.identityaddress;
+  if (!address) throw new Error(`no identity called "${ref}"`);
+  return address;
+}
+
+/**
  * Every currency held at an address, as `[{id, amount}]` in coins.
  *
  * Reads `currencybalance`, not `balance`. The native coin appears in there
@@ -161,9 +176,32 @@ export async function controlledIdentities(node, address) {
     } catch {
       held = [];
     }
-    if (held.length) found.push({ name: row.name, id, held });
+    if (held.length) found.push({ name: row.name, id, held, spendable: canSignFor(row, address) });
   }
   return found;
+}
+
+/**
+ * Whether this key can actually move what the identity holds.
+ *
+ * `getidentitieswithaddress` matches an address in ANY authority — revocation
+ * and recovery included — but the SDK's identity spends refuse an identity that
+ * does not list the signing key among its *primary* addresses, or that needs
+ * more than one signature. Without this distinction the send picker offers
+ * identities that fail after the passphrase has been typed.
+ *
+ * Reported rather than filtered: a balance held under a recovery authority is
+ * still worth showing, it just cannot be spent from here.
+ *
+ * An older node that omits the fields is given the benefit of the doubt. Hiding
+ * a real balance because a field is missing is the worse error of the two — the
+ * SDK still refuses the spend by name if it turns out not to be signable.
+ */
+function canSignFor(row, address) {
+  const primaries = row?.primaryaddresses;
+  if (!Array.isArray(primaries)) return true;
+  if (!primaries.includes(address)) return false;
+  return (row?.minimumsignatures ?? 1) <= 1;
 }
 
 const nameCache = new Map();

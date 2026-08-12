@@ -4,9 +4,18 @@
 // answer back. Signing happens in that window, where the passphrase was typed
 // and where the decrypted key dies with the document.
 
-import { sanitiseRequest, CODE, WalletError, PAGE_METHODS } from './lib/protocol.js';
+import {
+  sanitiseRequest,
+  sanitiseLocalSend,
+  assertPopupSender,
+  CODE,
+  WalletError,
+  PAGE_METHODS,
+  LOCAL_METHODS,
+  PORT,
+} from './lib/protocol.js';
 import { currentNetwork } from './lib/rpc.js';
-import { primary } from './lib/vault.js';
+import { primary, find } from './lib/vault.js';
 import { recall } from './lib/pending.js';
 
 /**
@@ -21,7 +30,36 @@ import { recall } from './lib/pending.js';
 const waiting = new Map();
 let counter = 0;
 
+/**
+ * Keep the worker alive while an approval is on screen.
+ *
+ * `waiting` is in memory, and MV3 stops an idle worker after about thirty
+ * seconds — which is less time than it takes to read a transaction and type a
+ * passphrase. A page request survives that by accident: the content script's
+ * `sendMessage` stays pending for the whole approval, and that pending response
+ * counts as activity. A send started in the popup has no such anchor, because
+ * the popup is answered immediately and then destroyed, so it would hit the
+ * "expired" panel far more often than a page request ever has.
+ *
+ * The port itself does nothing. Its traffic is the point.
+ */
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== PORT.APPROVAL_OPEN) return;
+  port.onMessage.addListener(() => {});
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === PORT.LOCAL_REQUEST) {
+    handleLocalRequest(message, sender)
+      .then((result) => sendResponse({ result }))
+      .catch((error) =>
+        sendResponse({
+          error: { code: error?.code ?? CODE.INTERNAL, message: error?.message ?? 'wallet error' },
+        }),
+      );
+    return true; // async
+  }
+
   if (message?.type === 'wallet:request') {
     handlePageRequest(message, sender)
       .then((result) => sendResponse({ result }))
@@ -89,6 +127,52 @@ async function handlePageRequest(message, sender) {
   }
 
   return openApproval({ method, params, origin, network: network.label, keyLabel: key.label });
+}
+
+/**
+ * A send the user started in the popup.
+ *
+ * Nothing here waits for the outcome, and that is not laziness: opening the
+ * approval window takes focus from the toolbar popup, which destroys it. There
+ * is no document left to tell. The approval window is the whole rest of the
+ * interaction, and it reports back through `wallet:approval-result` like any
+ * other.
+ */
+async function handleLocalRequest(message, sender) {
+  assertPopupSender(sender, chrome.runtime.id);
+  const params = sanitiseLocalSend(message.params);
+
+  const key = (params.keyLabel ? await find(params.keyLabel) : null) ?? (await primary());
+  if (!key) {
+    throw new WalletError(CODE.UNAUTHORIZED, 'no key in the wallet — create or import one first');
+  }
+  const network = await currentNetwork();
+
+  const settled = openApproval({
+    method: LOCAL_METHODS.SEND,
+    params: [params],
+    // Set here and nowhere else. `handlePageRequest` takes its origin from the
+    // sender's frame and has no way to produce this flag, so `local` — not the
+    // origin string — is what the approval window may safely discriminate on.
+    local: true,
+    origin: 'the wallet popup',
+    network: network.label,
+    keyLabel: key.label,
+  });
+
+  // `openApproval` resolves or rejects to settle a page's `window.verus.request`.
+  // Nothing is waiting on this one, and it rejects whenever the user closes the
+  // window — the most ordinary outcome there is. Without this it would be an
+  // unhandled rejection logged against the service worker every time.
+  settled.then(
+    () => {},
+    () => {},
+  );
+
+  // Answered before the window exists: `openApproval` registers the pending
+  // entry synchronously, so the popup gets its acknowledgement while it is
+  // still alive to receive it.
+  return { opened: true };
 }
 
 /** Roughly MetaMask's notification window. Small enough to read as a dialog. */

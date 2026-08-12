@@ -253,3 +253,146 @@ test('rejecting closes the window and settles the page promise', async () => {
     expect(await outcome).toBe('rejected:4001');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Sends, which start in the popup rather than on a page.
+
+/**
+ * A wallet with one real, unfunded key — and no launchpad site.
+ *
+ * `withWallet` needs the site because it drives `window.verus`. A send never
+ * touches a page, so these tests run whether or not the site is served.
+ */
+async function withLocalWallet(run) {
+  const profile = mkdtempSync(join(tmpdir(), 'verus-send-'));
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: 'chromium',
+    headless: true,
+    args: [`--disable-extensions-except=${EXTENSION}`, `--load-extension=${EXTENSION}`],
+  });
+  try {
+    let [worker] = context.serviceWorkers();
+    if (!worker) worker = await context.waitForEvent('serviceworker', { timeout: 20_000 });
+    const extensionId = new URL(worker.url()).host;
+
+    // Opened as a TAB, not as the toolbar popup. A real toolbar popup is
+    // destroyed the moment the approval window takes focus; this one survives,
+    // which is the only way to watch both. Nothing here should be read as
+    // evidence that the popup lives in production — it does not.
+    const popup = await context.newPage();
+    await popup.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
+    await expect(popup.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+    await popup.locator('input[placeholder="label"]').first().fill('probe');
+    await popup.locator('input[placeholder="passphrase"]').first().fill(PASSPHRASE);
+    await popup.getByRole('button', { name: 'create key' }).click();
+    await expect(popup.getByText('probe')).toBeVisible({ timeout: 15_000 });
+
+    await run({ context, extensionId, worker, popup });
+  } finally {
+    await context.close();
+    rmSync(profile, { recursive: true, force: true });
+  }
+}
+
+test('a send gets past every shape check and fails on funds', async () => {
+  // Driven straight from the popup DOCUMENT rather than through its form, and
+  // that is not a shortcut around the UI: the test key is real but unfunded, so
+  // it holds nothing and the form correctly offers nothing to send. The form's
+  // own behaviour in that state is asserted separately below.
+  //
+  // What this covers is everything after the click — the sender check, the
+  // worker's local branch, the approval window, and the DTO handed to
+  // `planSend`. Landing on insufficient funds can only happen once all of that
+  // has succeeded.
+  await withLocalWallet(async ({ context, popup }) => {
+    await popup.evaluate(async () => {
+      const { PORT, SEND_PATH } = await import('../lib/protocol.js');
+      await chrome.runtime.sendMessage({
+        type: PORT.LOCAL_REQUEST,
+        params: {
+          path: SEND_PATH.NATIVE,
+          to: 'RXdSvjZgRrNjtxVHEm13TH1pVTjt1obzKU',
+          amount: '0.1',
+        },
+      });
+    });
+
+    const approval = await approvalWindow(context);
+    await approval.locator('#pass').fill(PASSPHRASE);
+    await approval.getByRole('button', { name: 'build transaction' }).click();
+
+    await expect
+      .poll(async () => (await approval.locator('.status, .panel-title').allTextContents()).join(' | '), {
+        timeout: 60_000,
+      })
+      .toMatch(/built|spendable|insufficient|error|cannot|refus|invalid|unexpected/i);
+
+    const status = (await approval.locator('.status').textContent()) ?? '';
+    expect(status, status).not.toMatch(MALFORMED);
+    expect(status, `expected a funding rejection, got: ${status}`).toMatch(REACHED_VALIDATION);
+  });
+});
+
+test('a send says it came from the wallet, not from a website', async () => {
+  // The whole risk that sending introduces is a user reading a local send as a
+  // site request or the reverse. The two headers must not be confusable.
+  await withLocalWallet(async ({ context, popup }) => {
+    await popup.evaluate(async () => {
+      const { PORT, SEND_PATH } = await import('../lib/protocol.js');
+      await chrome.runtime.sendMessage({
+        type: PORT.LOCAL_REQUEST,
+        params: { path: SEND_PATH.NATIVE, to: 'RXdSvjZgRrNjtxVHEm13TH1pVTjt1obzKU', amount: '0.1' },
+      });
+    });
+
+    const approval = await approvalWindow(context);
+    const text = await approval.locator('body').textContent();
+
+    expect(text).toMatch(/no website asked for it/i);
+    expect(text, 'a local send must not claim a site requested it').not.toMatch(/requested by/i);
+    expect(text, 'no origin should appear').not.toMatch(/https?:\/\//);
+
+    // And it still shows what is about to happen.
+    expect(text).toMatch(/RXdSvjZgRrNjtxVHEm13TH1pVTjt1obzKU/);
+    expect(text).toMatch(/0\.1/);
+  });
+});
+
+test('rejecting a send closes the window and broadcasts nothing', async () => {
+  await withLocalWallet(async ({ context, popup }) => {
+    await popup.evaluate(async () => {
+      const { PORT, SEND_PATH } = await import('../lib/protocol.js');
+      await chrome.runtime.sendMessage({
+        type: PORT.LOCAL_REQUEST,
+        params: { path: SEND_PATH.NATIVE, to: 'RXdSvjZgRrNjtxVHEm13TH1pVTjt1obzKU', amount: '0.1' },
+      });
+    });
+
+    const approval = await approvalWindow(context);
+    await approval.getByRole('button', { name: 'reject' }).click();
+    await expect
+      .poll(() => context.pages().some((p) => p.url().includes('approve.html')), { timeout: 15_000 })
+      .toBe(false);
+  });
+});
+
+test('an unfunded wallet offers nothing to send rather than a broken form', async () => {
+  await withLocalWallet(async ({ popup }) => {
+    await popup.locator('summary', { hasText: 'send' }).first().click();
+
+    // Asserted through the select's options rather than by visibility: an
+    // <option> is never "visible" to a browser-driver, so waiting for it to
+    // appear on screen waits forever on a panel that is working perfectly.
+    //
+    // The asset list is fetched when the panel opens, so this is waiting on a
+    // real testnet read for an address that has never been used.
+    await expect
+      .poll(
+        async () => (await popup.locator('select').last().locator('option').allTextContents()).join(),
+        { timeout: 30_000 },
+      )
+      .toMatch(/nothing to send/);
+
+    await expect(popup.getByRole('button', { name: 'review' })).toBeDisabled();
+  });
+});

@@ -835,9 +835,19 @@ test('the toolbar popup fits inside Chrome without scrolling', async () => {
 
     // Once there is a key, the everyday view is the balance — setup folds away
     // and must not be occupying the window any more.
+    //
+    // Asserted as "the setup fields are not on screen" rather than as "shorter
+    // than first run". The height comparison was only ever a proxy for this,
+    // and it was the wrong one: it also forbids the everyday view from ever
+    // gaining a row, which the send panel legitimately does. What the original
+    // bug was about is 426px of one-time setup standing in front of the
+    // balance, and that is what this checks.
     const settled = await height();
     expect(settled, `with a key renders ${settled}px`).toBeLessThan(CHROME_POPUP_MAX);
-    expect(settled).toBeLessThan(fresh);
+    // None visible, rather than the first — both the create and the import form
+    // carry a "label" field and both have to be out of the way.
+    expect(await popup.locator('input[placeholder="WIF"]:visible').count()).toBe(0);
+    expect(await popup.locator('input[placeholder="label"]:visible').count()).toBe(0);
     for (const fold of await popup.locator('details.foldout').all()) {
       expect(await fold.getAttribute('open')).toBeNull();
     }
@@ -872,7 +882,7 @@ test('a loaded popup does not overflow its width', async () => {
 
     const measured = await popup.evaluate(async () => {
       const { el, mount, panel } = await import('../lib/dom.js');
-      const UNRESOLVED = 'iFhna4jLJVCwZuLmqNCoDAJ6Xx3ZeCQBTX';
+      const UNRESOLVED = 'iFhnaURhtBLFdtGcTwi5GHxpoSpqjKfWmP';
       const holding = (label, amount) =>
         el('div', { class: 'holding' }, [
           el('span', { class: 'value' }, label),
@@ -919,5 +929,249 @@ test('a loaded popup does not overflow its width', async () => {
     expect(measured.worstRow, 'a holdings row overflows its panel').toBeLessThanOrEqual(0);
     expect(measured.worstHead, 'the key label overflows its row').toBeLessThanOrEqual(0);
     expect(measured.documentWidth, 'the document is wider than the popup').toBe(360);
+  });
+});
+
+// --- destinations ----------------------------------------------------------
+//
+// These run entirely in the page, against the real module, and touch no node.
+// `src/lib/address.js` is the only thing standing between a mistyped character
+// and coins paid to a hash nobody holds the key for, so it is tested first and
+// hardest.
+
+/** Addresses whose checksums were verified by decoding them, not by assumption. */
+const REAL = {
+  transparent: ['RXdSvjZgRrNjtxVHEm13TH1pVTjt1obzKU', 'RCvP2M7HjvGLHMf47qopqxsNGBmM97Q4n3'],
+  identity: ['iJhCezBExJHvtyH3fGhNnt2NhU4Ztkf2yq', 'iFhnaURhtBLFdtGcTwi5GHxpoSpqjKfWmP'],
+};
+
+/** Open the popup only to get a document that can import the extension's modules. */
+async function inPage(context, extensionId, fn, arg) {
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
+  await expect(page.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+  return page.evaluate(fn, arg);
+}
+
+test('a real address is classified and a one-character typo is refused', async () => {
+  // The whole argument for base58check over a prefix-and-length regex: a typo
+  // keeps the prefix and keeps the length. Every one of these mutants would
+  // pass /^[Ri][1-9A-HJ-NP-Za-km-z]{33}$/ and pay a stranger.
+  await withExtension(async ({ context, extensionId }) => {
+    const out = await inPage(
+      context,
+      extensionId,
+      async (fixtures) => {
+        const { parseDestination, KIND } = await import('../lib/address.js');
+        const attempt = async (text) => {
+          try {
+            return { ok: true, ...(await parseDestination(text)) };
+          } catch (error) {
+            return { ok: false, message: error.message };
+          }
+        };
+
+        const good = [];
+        const mutated = [];
+        for (const [kind, list] of Object.entries(fixtures)) {
+          for (const address of list) {
+            good.push({ kind, address, got: await attempt(address) });
+            // Flip one character, somewhere in the middle, to another that is
+            // in the alphabet — so only the checksum can object.
+            const at = 12;
+            const swap = address[at] === 'x' ? 'y' : 'x';
+            const typo = address.slice(0, at) + swap + address.slice(at + 1);
+            mutated.push({ typo, length: typo.length, got: await attempt(typo) });
+          }
+        }
+        return { good, mutated, KIND };
+      },
+      REAL,
+    );
+
+    for (const entry of out.good) {
+      expect(entry.got.ok, `${entry.address} → ${entry.got.message}`).toBe(true);
+      expect(entry.got.kind, entry.address).toBe(out.KIND[entry.kind === 'transparent' ? 'TRANSPARENT' : 'IDENTITY']);
+      expect(entry.got.to).toBe(entry.address);
+    }
+
+    for (const entry of out.mutated) {
+      expect(entry.got.ok, `a typo was accepted: ${entry.typo}`).toBe(false);
+      // Named, not merely refused. "invalid address" is what the SDK would say
+      // far too late; this has to tell someone what to do about it.
+      expect(entry.got.message, entry.typo).toMatch(/typo|checksum/i);
+    }
+  });
+});
+
+test('a shielded address is refused for the real reason, not as a bad checksum', async () => {
+  // The SDK has no shielded support at all — `Key.fromSeedPhrase` derives a
+  // transparent key and there is simply no other kind. A `zc…` Sprout address
+  // is itself valid base58check, so if the z check ran after the decode this
+  // would come back as an unknown version byte and tell the user nothing.
+  await withExtension(async ({ context, extensionId }) => {
+    const out = await inPage(context, extensionId, async () => {
+      const { parseDestination } = await import('../lib/address.js');
+      const results = {};
+      for (const z of ['zs1w9k8fmelt3cjqyxv6ug2vzcsyxfz7yxr8', 'ztestsapling1abcdefghijkmnop', 'zcRGmkC9nR2SCbpo']) {
+        try {
+          await parseDestination(z);
+          results[z] = 'ACCEPTED';
+        } catch (error) {
+          results[z] = error.message;
+        }
+      }
+      return results;
+    });
+
+    for (const [address, message] of Object.entries(out)) {
+      expect(message, address).toMatch(/shielded/i);
+      expect(message, `${address} blamed the checksum instead of saying why`).not.toMatch(/checksum|typo/i);
+    }
+  });
+});
+
+test('a bare name is not silently turned into an identity', async () => {
+  // `asIdentityRef` turns any string into `thing@`, which is correct where the
+  // caller already knows it named an identity. In a send box it would mean a
+  // mistyped address quietly becomes a payment to a completely different place.
+  await withExtension(async ({ context, extensionId }) => {
+    const out = await inPage(context, extensionId, async () => {
+      const { parseDestination, KIND } = await import('../lib/address.js');
+      const attempt = async (text) => {
+        try {
+          return { ok: true, ...(await parseDestination(text)) };
+        } catch (error) {
+          return { ok: false, message: error.message };
+        }
+      };
+      return {
+        bare: await attempt('alice'),
+        withAt: await attempt('alice@'),
+        empty: await attempt('   '),
+        junk: await attempt('not an address'),
+        NAME: KIND.NAME,
+      };
+    });
+
+    expect(out.bare.ok, 'a bare name was accepted').toBe(false);
+    expect(out.bare.message).toMatch(/alice@/);
+
+    expect(out.withAt.ok, out.withAt.message).toBe(true);
+    expect(out.withAt.kind).toBe(out.NAME);
+    expect(out.withAt.to).toBe('alice@');
+
+    expect(out.empty.ok).toBe(false);
+    expect(out.junk.ok).toBe(false);
+  });
+});
+
+test('the page-facing surface has not grown a way to send', async () => {
+  // A canary, and the cheapest test in this file. Sending is the only thing the
+  // wallet does that pays a destination somebody else chose, so it is kept off
+  // the page allowlist entirely. This fails the moment anyone adds it there
+  // "for symmetry".
+  await withExtension(async ({ context, extensionId }) => {
+    const methods = await inPage(context, extensionId, async () => {
+      const { PAGE_METHODS } = await import('../lib/protocol.js');
+      return Object.values(PAGE_METHODS).sort();
+    });
+
+    expect(methods).toEqual(
+      [
+        'verus_connect',
+        'verus_address',
+        'verus_registerIdentity',
+        'verus_registrationState',
+        'verus_sendTokenFromIdentity',
+        'verus_launchCurrency',
+        'verus_convert',
+      ].sort(),
+    );
+  });
+});
+
+test('only the wallet popup can start a send', async () => {
+  // The content script this extension injects into every page is the only
+  // forger within reach — a page cannot call chrome.runtime.sendMessage at all,
+  // since no externally_connectable is declared. A content script's sender
+  // always carries a tab and the page's own origin, which is what is checked.
+  await withExtension(async ({ context, extensionId }) => {
+    const out = await inPage(
+      context,
+      extensionId,
+      async (id) => {
+        const { assertPopupSender } = await import('../lib/protocol.js');
+        const own = `chrome-extension://${id}`;
+        const attempt = (sender) => {
+          try {
+            assertPopupSender(sender, id);
+            return 'ACCEPTED';
+          } catch (error) {
+            return error.message;
+          }
+        };
+
+        return {
+          realPopup: attempt({ id, origin: own, url: `${own}/src/ui/popup.html` }),
+          // The popup opened as an ordinary tab, which a user can do and which
+          // is how this path is tested. Allowed on purpose: it is still this
+          // extension's own popup document.
+          popupInATab: attempt({ id, tab: { id: 3 }, origin: own, url: `${own}/src/ui/popup.html` }),
+          contentScript: attempt({ id, tab: { id: 7 }, origin: 'https://evil.test', url: 'https://evil.test/' }),
+          // A content script that has somehow lost its tab still carries the
+          // page's origin.
+          pageOrigin: attempt({ id, origin: 'https://evil.test', url: 'https://evil.test/' }),
+          otherExtension: attempt({ id: 'aaaabbbbccccddddeeeeffffgggghhhh', origin: own, url: `${own}/src/ui/popup.html` }),
+          // Our own extension, but not the popup — the approval window must not
+          // be able to start a second send either.
+          otherPage: attempt({ id, origin: own, url: `${own}/src/ui/approve.html?id=1` }),
+          nothing: attempt(undefined),
+        };
+      },
+      extensionId,
+    );
+
+    const allowed = new Set(['realPopup', 'popupInATab']);
+    for (const [name, verdict] of Object.entries(out)) {
+      if (allowed.has(name)) expect(verdict, `${name} was refused`).toBe('ACCEPTED');
+      else expect(verdict, `${name} was accepted`).not.toBe('ACCEPTED');
+    }
+  });
+});
+
+test('a malformed send is refused before it reaches the worker', async () => {
+  await withExtension(async ({ context, extensionId }) => {
+    const out = await inPage(context, extensionId, async () => {
+      const { sanitiseLocalSend, SEND_PATH } = await import('../lib/protocol.js');
+      const attempt = (raw) => {
+        try {
+          return { ok: true, value: sanitiseLocalSend(raw) };
+        } catch (error) {
+          return { ok: false, message: error.message };
+        }
+      };
+      const good = { path: SEND_PATH.NATIVE, to: 'RXdSvjZgRrNjtxVHEm13TH1pVTjt1obzKU', amount: '1.5' };
+      return {
+        good: attempt(good),
+        nineDecimals: attempt({ ...good, amount: '1.123456789' }),
+        zero: attempt({ ...good, amount: '0' }),
+        negative: attempt({ ...good, amount: '-1' }),
+        words: attempt({ ...good, amount: 'all of it' }),
+        noPath: attempt({ ...good, path: 'nonsense' }),
+        tokenWithoutCurrency: attempt({ ...good, path: SEND_PATH.TOKEN }),
+        tokenWithName: attempt({ ...good, path: SEND_PATH.TOKEN, currency: 'dudecoin' }),
+      };
+    });
+
+    expect(out.good.ok, out.good.message).toBe(true);
+    // A string all the way down: parsed as a float, the eighth decimal place is
+    // a whole satoshi.
+    expect(out.good.value.amount).toBe('1.5');
+
+    for (const name of ['nineDecimals', 'zero', 'negative', 'words', 'noPath', 'tokenWithoutCurrency', 'tokenWithName']) {
+      expect(out[name].ok, `${name} was accepted`).toBe(false);
+    }
+    expect(out.nineDecimals.message).toMatch(/8 decimal/);
   });
 });

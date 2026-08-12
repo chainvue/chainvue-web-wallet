@@ -20,10 +20,12 @@ import init, {
   planCommitmentStatus,
 } from '../vendor/verus-wasm/verus_wasm.js';
 import { el, mount, row, panel } from '../lib/dom.js';
-import { NETWORKS, rpc, broadcast, tokenUtxos } from '../lib/rpc.js';
+import { NETWORKS, rpc, broadcast, tokenUtxos, identityAddress } from '../lib/rpc.js';
 import { runOnce } from '../lib/driver.js';
 import { find, primary, open as openVault } from '../lib/vault.js';
 import { remember, recall, forget } from '../lib/pending.js';
+import { LOCAL_METHODS, SEND_PATH, PORT } from '../lib/protocol.js';
+import { parseDestination, KIND } from '../lib/address.js';
 
 const root = document.getElementById('root');
 const id = new URLSearchParams(location.search).get('id');
@@ -36,18 +38,61 @@ const RESERVE_TRANSFER_FEE = '0.0002';
 async function boot() {
   await init();
 
+  // Hold a port open for as long as this window is. MV3 stops an idle worker
+  // after about thirty seconds, and the worker is holding this request in
+  // memory — see the note on `onConnect` in background.js.
+  keepWorkerAwake();
+
   const answer = await chrome.runtime.sendMessage({ type: 'wallet:approval-ready', id });
   if (!answer || answer.expired) {
     mount(
       root,
       panel('expired', [
         el('p', { class: 'warn' }, 'this request is no longer held by the wallet'),
-        el('p', { class: 'muted small' }, 'The background worker was stopped while the window was open. Nothing was signed. Try again from the page.'),
+        el('p', { class: 'muted small' }, 'The background worker was stopped while the window was open. Nothing was signed — start it again.'),
       ]),
     );
     return;
   }
   renderRequest(answer.request);
+}
+
+function keepWorkerAwake() {
+  try {
+    const port = chrome.runtime.connect({ name: PORT.APPROVAL_OPEN });
+    const beat = setInterval(() => {
+      try {
+        port.postMessage({ open: true });
+      } catch {
+        clearInterval(beat);
+      }
+    }, 20_000);
+    port.onDisconnect.addListener(() => clearInterval(beat));
+  } catch {
+    // Not being able to hold the worker awake is not a reason to refuse to show
+    // the request; the worst case is the "expired" panel, which is honest.
+  }
+}
+
+/**
+ * Who asked for this.
+ *
+ * Two visibly different answers, because mistaking one for the other is the
+ * risk that sending introduces. A site request is amber and names the origin; a
+ * send the user started is green and says so in words. `request.local` is set
+ * only by the worker's local path, which no page can reach.
+ */
+function requestHeader(request) {
+  if (request.local) {
+    return el('div', { class: 'origin origin-local' }, [
+      el('div', { class: 'small' }, 'started here'),
+      el('div', {}, 'you began this in the wallet — no website asked for it'),
+    ]);
+  }
+  return el('div', { class: 'origin' }, [
+    el('div', { class: 'small' }, 'requested by'),
+    el('div', {}, request.origin),
+  ]);
 }
 
 function renderRequest(request) {
@@ -77,7 +122,7 @@ function renderRequest(request) {
 
   mount(
     root,
-    el('div', { class: 'origin' }, [el('div', { class: 'small' }, 'requested by'), el('div', {}, request.origin)]),
+    requestHeader(request),
     panel('what it will do', describe(request)),
     panel('signing with', [row('key', request.keyLabel), row('chain', net.label)]),
     el('div', {}, [el('label', { for: 'pass' }, 'passphrase'), pass]),
@@ -169,6 +214,32 @@ function describe(request) {
     ].filter(Boolean);
   }
 
+  if (request.method === LOCAL_METHODS.SEND) {
+    const asset = params.currencyName ?? params.currency ?? 'the native coin';
+    const fromIdentity =
+      params.path === SEND_PATH.IDENTITY_TOKEN || params.path === SEND_PATH.IDENTITY_NATIVE;
+    const token = params.path === SEND_PATH.TOKEN || params.path === SEND_PATH.IDENTITY_TOKEN;
+
+    return [
+      row('action', 'send'),
+      row('amount', `${params.amount} ${asset}`),
+      row('to', String(params.to)),
+      fromIdentity ? row('from', String(params.identity)) : null,
+      token
+        ? el(
+            'p',
+            { class: 'muted small' },
+            'The miner fee is paid in the chain\'s own coin from this key, not out of the token.',
+          )
+        : null,
+      el(
+        'p',
+        { class: 'warn small' },
+        'A payment cannot be undone. The next screen shows the transaction as built, with the address it actually pays, before anything is sent.',
+      ),
+    ].filter(Boolean);
+  }
+
   return [row('action', request.method)];
 }
 
@@ -199,6 +270,10 @@ async function buildTransaction(request, net, passphrase, progress) {
 async function dispatch(key, request, net, progress) {
   {
     const [params = {}] = request.params;
+
+    if (request.method === LOCAL_METHODS.SEND) {
+      return sendFunds(key, request, params, net, progress);
+    }
 
     if (request.method === 'verus_registerIdentity') {
       return registerIdentity(key, params, net, progress);
@@ -294,10 +369,8 @@ async function dispatch(key, request, net, progress) {
 
         if (params.fromIdentity) {
           progress("resolving the identity's outputs…");
-          const holder = await rpc(net.node, 'getidentity', [asIdentityRef(params.fromIdentity)]);
-          holderAddress = holder?.identity?.identityaddress;
+          holderAddress = await identityAddress(net.node, asIdentityRef(params.fromIdentity));
           label = String(params.fromIdentity);
-          if (!holderAddress) throw new Error(`no identity called "${params.fromIdentity}"`);
         } else {
           progress('gathering outputs…');
         }
@@ -356,6 +429,119 @@ async function dispatch(key, request, net, progress) {
 
     throw new Error(`this wallet cannot do ${request.method}`);
   }
+}
+
+/**
+ * Pay someone.
+ *
+ * The destination is checked again here, and that is not belt-and-braces about
+ * the popup being wrong — it is that the popup's copy of these checks exists to
+ * tell the user about a typo while there is still a form to fix it in. The
+ * request has crossed two context boundaries as a serialised message since
+ * then, and this window is the only place that signs, so this is the check that
+ * counts.
+ *
+ * A friendly name is resolved to its `i…` address before the SDK sees it:
+ * `PlanSendRequest.to` takes an address, not a name, and resolving here means
+ * stage two can show the name the user typed next to the address it actually
+ * pays.
+ */
+async function sendFunds(key, request, params, net, progress) {
+  // Reachable only from the popup. `sanitiseRequest` already keeps this method
+  // off the page allowlist, so this cannot fire today — it is here so that a
+  // future edit to the allowlist cannot quietly turn a page into a spender.
+  if (!request.local) throw new Error('a send can only be started from the wallet');
+
+  progress('checking the destination…');
+  const parsed = await parseDestination(params.to);
+  const to = parsed.kind === KIND.NAME ? await identityAddress(net.node, parsed.to) : parsed.to;
+
+  // Throws past eight decimal places; the popup says so in better words first.
+  const satoshis = parseCoins(String(params.amount));
+
+  const rounds = (round, asked) => progress(`round ${round} — asking the node ${asked} thing(s)…`);
+  const common = { to, shown: parsed.to, resolved: parsed.kind === KIND.NAME ? to : null, satoshis };
+
+  if (params.path === SEND_PATH.NATIVE) {
+    progress('finding spendable coins…');
+    return {
+      kind: 'send',
+      ...common,
+      asset: net.native,
+      value: await runOnce(Answers, (answers) => key.planSend({ to, satoshis }, answers), net.node, rounds),
+    };
+  }
+
+  if (params.path === SEND_PATH.IDENTITY_NATIVE) {
+    progress('finding the identity\'s coins…');
+    return {
+      kind: 'send',
+      ...common,
+      asset: net.native,
+      from: params.identity,
+      value: await runOnce(
+        Answers,
+        (answers) =>
+          key.planSendFromIdentity({ identity: asIdentityRef(params.identity), to, satoshis }, answers),
+        net.node,
+        rounds,
+      ),
+    };
+  }
+
+  if (params.path === SEND_PATH.IDENTITY_TOKEN) {
+    // No `tokenUtxos` here: this flow discovers the identity's own outputs, and
+    // the surplus returns to the identity rather than to the fee-paying key.
+    return {
+      kind: 'send',
+      ...common,
+      asset: params.currencyName ?? params.currency,
+      from: params.identity,
+      value: await runOnce(
+        Answers,
+        (answers) =>
+          key.planSendTokenFromIdentity(
+            {
+              identity: asIdentityRef(params.identity),
+              currency: params.currency,
+              to,
+              amount: satoshis,
+            },
+            answers,
+          ),
+        net.node,
+        rounds,
+      ),
+    };
+  }
+
+  if (params.path === SEND_PATH.TOKEN) {
+    // Not discovered for us, unlike every other path: `getaddressutxos` reports
+    // an output's native value, not which token it carries, so the filtering is
+    // ours to do.
+    progress('gathering the token outputs…');
+    const utxos = await tokenUtxos(net.node, key.address(), params.currency);
+    if (utxos.length === 0) {
+      throw new Error(`this wallet holds none of ${params.currencyName ?? params.currency}`);
+    }
+    return {
+      kind: 'send',
+      ...common,
+      asset: params.currencyName ?? params.currency,
+      value: await runOnce(
+        Answers,
+        (answers) =>
+          key.planSendToken(
+            { currency: params.currency, to, amount: satoshis, tokenUtxos: utxos },
+            answers,
+          ),
+        net.node,
+        rounds,
+      ),
+    };
+  }
+
+  throw new Error(`unknown send path: ${params.path}`);
 }
 
 /**
@@ -676,7 +862,18 @@ function renderBuilt(request, net, built) {
   const status = el('div', { class: 'status' });
 
   const rows = [row('txid', v.txid)];
-  if (built.kind === 'launch') {
+  if (built.kind === 'send') {
+    // Re-derived, not echoed. The amount is formatted back from the satoshis
+    // that were actually signed, and a name shows the address it resolved to —
+    // the point of this screen is that it reports a fact rather than repeating
+    // the claim from the previous one.
+    rows.push(row('paying', `${formatCoins(built.satoshis)} ${built.asset}`));
+    rows.push(row('to', built.shown));
+    if (built.resolved) rows.push(row('which is', built.resolved));
+    if (built.from) rows.push(row('from', built.from));
+    if (v.fee) rows.push(row('miner fee', `${formatCoins(v.fee)} ${net.native}`));
+    if (v.change) rows.push(row('change', `${formatCoins(v.change)} ${net.native}`));
+  } else if (built.kind === 'launch') {
     rows.push(row('currency id', v.currencyId));
     rows.push(row('starts at block', String(v.startBlock)));
     rows.push(row('launch fee', `${formatCoins(v.launchFee)} ${net.native} — burned`));
@@ -732,7 +929,7 @@ function renderBuilt(request, net, built) {
 
   mount(
     root,
-    el('div', { class: 'origin' }, [el('div', { class: 'small' }, 'requested by'), el('div', {}, request.origin)]),
+    requestHeader(request),
     panel('built — nothing has been sent yet', rows),
     el('p', { class: 'muted small' }, 'The transaction is signed and sitting in this window. Nothing reaches the chain until you broadcast.'),
     el('div', { class: 'buttons' }, [drop, send]),

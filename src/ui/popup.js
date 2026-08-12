@@ -13,6 +13,8 @@ import {
 import { coinsShort, elide } from '../lib/fmt.js';
 import { list, add, remove, seal } from '../lib/vault.js';
 import { list as pendingList, forget as forgetPending } from '../lib/pending.js';
+import { SEND_PATH, PORT } from '../lib/protocol.js';
+import { parseDestination } from '../lib/address.js';
 
 const root = document.getElementById('root');
 
@@ -36,11 +38,181 @@ async function render() {
     root,
     networkPicker(net),
     keys.length ? keysPanel(keys, net) : el('p', { class: 'muted' }, 'no keys yet'),
+    keys.length ? sendPanel(keys, net) : null,
     pending.length ? pendingPanel(pending, net) : null,
     el('hr'),
     createPanel(firstRun),
     importPanel(),
   );
+}
+
+/**
+ * Everything this key can move, in the order the balance list already shows it.
+ *
+ * The distinction that matters is not cosmetic: it decides which of the SDK's
+ * four send flows the transaction is built with, so it is worked out here from
+ * the same two reads the balance display already makes rather than guessed at
+ * later.
+ *
+ * Native held by an identity gets its own path. `currencybalance` includes the
+ * chain's own coin, so an identity's holdings legitimately contain it, and
+ * routing that through the token flow would treat the native coin as a token
+ * and fail in a way nobody could read.
+ */
+function sendables(net, own, identities, names) {
+  const nameOf = (id) => names.get(id) ?? id;
+  const isNative = (id) => nameOf(id) === net.native;
+  const found = [];
+
+  for (const holding of own) {
+    found.push({
+      path: isNative(holding.id) ? SEND_PATH.NATIVE : SEND_PATH.TOKEN,
+      currency: holding.id,
+      currencyName: nameOf(holding.id),
+      label: `${nameOf(holding.id)} — ${coinsShort(holding.amount)}`,
+      amount: holding.amount,
+    });
+  }
+
+  for (const identity of identities) {
+    // Offered only where this key is a primary address and one signature is
+    // enough; anything else is refused by the SDK after the passphrase has been
+    // typed, which is the worst possible moment to find out.
+    if (identity.spendable === false) continue;
+    for (const holding of identity.held) {
+      found.push({
+        path: isNative(holding.id) ? SEND_PATH.IDENTITY_NATIVE : SEND_PATH.IDENTITY_TOKEN,
+        currency: holding.id,
+        currencyName: nameOf(holding.id),
+        identity: `${identity.name}@`,
+        label: `${nameOf(holding.id)} (${identity.name}@) — ${coinsShort(holding.amount)}`,
+        amount: holding.amount,
+      });
+    }
+  }
+
+  return found;
+}
+
+/**
+ * The send form.
+ *
+ * Folded, and populated only when it is opened. A closed foldout costs one line
+ * and no network at all, which is right for a panel that most openings of this
+ * popup never touch — and the popup has 600px to work with in total.
+ */
+function sendPanel(keys, net) {
+  const asset = el('select', { disabled: true }, [el('option', {}, 'reading balances…')]);
+  const to = el('input', { type: 'text', placeholder: 'R… address, i… address, or name@', autocomplete: 'off' });
+  const amount = el('input', { type: 'text', inputmode: 'decimal', placeholder: 'amount', autocomplete: 'off' });
+  const status = el('div', { class: 'status small' });
+  const go = el('button', { type: 'button', disabled: true }, 'review');
+
+  let options = [];
+
+  const keyPicker =
+    keys.length > 1
+      ? el('select', {}, keys.map((k) => el('option', { value: k.label }, k.label)))
+      : null;
+  const chosenKey = () => (keyPicker ? keyPicker.value : keys[0].label);
+
+  // A later keystroke must win. `parseDestination` is async — it hashes — so
+  // without this a fast typist gets the verdict on a prefix rendered underneath
+  // a finished address.
+  let seq = 0;
+  to.addEventListener('input', async () => {
+    const mine = ++seq;
+    const text = to.value.trim();
+    if (!text) {
+      if (mine === seq) mount(status);
+      return;
+    }
+    try {
+      const parsed = await parseDestination(text);
+      if (mine !== seq) return;
+      mount(status, el('span', { class: 'muted' }, parsed.kind === 'name' ? 'an identity — checked when you review' : 'address looks right'));
+    } catch (error) {
+      if (mine !== seq) return;
+      mount(status, el('span', { class: 'danger' }, error.message));
+    }
+  });
+
+  const node = foldout(
+    'send',
+    [
+      keyPicker ? el('label', {}, 'from') : null,
+      keyPicker,
+      el('label', {}, 'asset'),
+      asset,
+      el('label', {}, 'to'),
+      to,
+      el('label', {}, 'amount'),
+      amount,
+      el('div', { class: 'buttons' }, [go]),
+      status,
+    ].filter(Boolean),
+  );
+
+  node.addEventListener('toggle', async () => {
+    if (!node.open || options.length) return;
+    try {
+      const label = chosenKey();
+      const address = (keys.find((k) => k.label === label) ?? keys[0]).address;
+      const own = await currencyBalances(net.node, address);
+      const identities = await controlledIdentities(net.node, address);
+      const ids = [...new Set([...own, ...identities.flatMap((i) => i.held)].map((h) => h.id))];
+      const names = await currencyNames(net.node, ids);
+
+      options = sendables(net, own, identities, names);
+      if (options.length === 0) {
+        mount(asset, el('option', {}, 'nothing to send'));
+        return;
+      }
+      // Bound by index into a parallel array, never by packing fields into the
+      // option's value: a currency name is chain data and anyone can put a
+      // separator inside one.
+      mount(asset, ...options.map((o, i) => el('option', { value: String(i) }, o.label)));
+      asset.disabled = false;
+      go.disabled = false;
+    } catch (error) {
+      mount(status, el('span', { class: 'warn' }, error?.message ?? 'could not read balances'));
+    }
+  });
+
+  go.addEventListener('click', async () => {
+    go.disabled = true;
+    try {
+      const choice = options[Number(asset.value)];
+      if (!choice) throw new Error('pick something to send');
+      await parseDestination(to.value); // the popup's last chance to say why
+      const value = amount.value.trim();
+      if (!/^\d+(\.\d{1,8})?$/.test(value) || Number(value) <= 0) {
+        throw new Error('the amount must be a positive number with at most 8 decimal places');
+      }
+
+      // Nothing after this runs. Opening the approval window takes focus from
+      // the toolbar popup, which destroys this document mid-promise — so there
+      // is no success path to render and no error worth catching except the one
+      // that means the window never opened.
+      await chrome.runtime.sendMessage({
+        type: PORT.LOCAL_REQUEST,
+        params: {
+          path: choice.path,
+          to: to.value.trim(),
+          amount: value,
+          currency: choice.currency,
+          currencyName: choice.currencyName,
+          identity: choice.identity,
+          keyLabel: chosenKey(),
+        },
+      });
+    } catch (error) {
+      mount(status, el('span', { class: 'danger' }, error?.message ?? 'could not start the send'));
+      go.disabled = false;
+    }
+  });
+
+  return node;
 }
 
 /**

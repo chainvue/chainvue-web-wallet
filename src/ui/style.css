@@ -104,6 +104,14 @@ h1 {
   word-break: break-all;
 }
 
+/* A request the user started here is not a request from anywhere, and the amber
+   frame would read as a site called "the wallet popup". Different colour and
+   different words, because confusing the two is the risk sending introduces. */
+.origin-local {
+  border-left-color: var(--accent);
+  color: var(--accent);
+}
+
 label { display: block; color: var(--label); font-size: 11px; margin-bottom: 0.15rem; }
 
 input, select {
@@ -136,7 +144,9 @@ button.secondary { border-color: var(--muted); color: var(--label); }
 button:hover:not(:disabled) { background: #04200420; }
 button:disabled { border-color: var(--muted); color: var(--muted); cursor: progress; }
 
-.status { margin-top: 0.6rem; min-height: 1.2em; }
+/* An error here names an address — 34 unbreakable characters, which without
+   this pushes the document past the popup's width. See the note on `html`. */
+.status { margin-top: 0.6rem; min-height: 1.2em; overflow-wrap: anywhere; }
 
 .keylist { display: flex; flex-direction: column; gap: 0.35rem; }
 .keyrow { border: 1px solid var(--frame); padding: 0.4rem 0.55rem; }

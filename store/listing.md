@@ -95,6 +95,8 @@ WHAT IT DOES
   • Create or import a key, encrypted under a passphrase
   • See every currency at your address — not just the native coin — including
     balances held by identities you control
+  • Send coins or tokens to an address or to a VerusID name, with the
+    destination checked before anything is built
   • Claim a VerusID name, resumably, across the two transactions it takes
   • Launch a token or a basket currency
   • Preconvert into a launch, or swap between currencies

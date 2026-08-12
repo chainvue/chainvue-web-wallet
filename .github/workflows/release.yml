@@ -18,6 +18,18 @@ name: release
 on:
   push:
     tags: ['v*']
+  # Called by release-please.yml once it has cut a release. This is not a
+  # nicety: GitHub does not start a workflow from an event created with the
+  # default GITHUB_TOKEN, so the tag and release that release-please publishes
+  # wake nothing up. Measured, not assumed — v0.2.0 was cut with zero assets.
+  # Calling the build directly sidesteps that without a personal access token,
+  # which is the alternative and a worse one to leave lying around a wallet.
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+  # Still fires if a human publishes a release by hand in the web UI.
   release:
     types: [published]
   # Run by hand to prove the build still works. It cannot publish: every step
@@ -34,7 +46,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name || github.ref }}
+          ref: ${{ inputs.tag || github.event.release.tag_name || github.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -64,10 +76,13 @@ jobs:
         id: what
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+          CALLED_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           tag=""
-          if [ -n "${RELEASE_TAG:-}" ]; then
+          if [ -n "${CALLED_TAG:-}" ]; then
+            tag="$CALLED_TAG"
+          elif [ -n "${RELEASE_TAG:-}" ]; then
             tag="$RELEASE_TAG"
           elif [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
             tag="$GITHUB_REF_NAME"

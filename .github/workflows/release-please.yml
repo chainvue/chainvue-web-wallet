@@ -46,9 +46,24 @@ permissions:
 jobs:
   propose:
     runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.rp.outputs.release_created }}
+      tag: ${{ steps.rp.outputs.tag_name }}
     steps:
       # googleapis/release-please-action v5.0.0
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7
+        id: rp
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  # Only when a release was actually cut. Called rather than left to a trigger
+  # because a release published with the default GITHUB_TOKEN starts no workflow.
+  build:
+    needs: propose
+    if: needs.propose.outputs.released == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.propose.outputs.tag }}

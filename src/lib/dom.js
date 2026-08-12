@@ -1,3 +1,5 @@
+import { chunk } from './fmt.js';
+
 // Text-only element builder.
 //
 // Same guarantee as the launchpad site's: strings are assigned through
@@ -35,6 +37,29 @@ export function row(label, value) {
 
 export function panel(title, children) {
   return el('div', { class: 'panel' }, [el('div', { class: 'panel-title' }, title), ...[].concat(children)]);
+}
+
+/**
+ * An address, rendered to be checked rather than merely displayed.
+ *
+ * Grouped, with the first and last group brightened — those are the characters
+ * anyone actually compares against the place they copied the address from. The
+ * complete value is kept on `data-address` so a test, or a copy button, reads
+ * the real thing and never the spaced-out display text.
+ */
+export function address(text, { emphasise = true, short = false } = {}) {
+  const raw = String(text ?? '');
+  // `short` keeps only the groups anyone actually compares. Used where the row
+  // is tight; the full grouped address is always one tap away on Receive.
+  const all = chunk(raw);
+  const groups = short && all.length > 3 ? [all[0], '···', all[all.length - 1]] : all;
+  const node = el('span', { class: 'addr-chunks', 'data-address': raw });
+  groups.forEach((group, i) => {
+    const isEnd = emphasise && (i === 0 || i === groups.length - 1);
+    node.append(el('span', { class: isEnd ? 'addr-end' : null }, group));
+    if (i < groups.length - 1) node.append(document.createTextNode(' '));
+  });
+  return node;
 }
 
 /**

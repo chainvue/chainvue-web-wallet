@@ -68,8 +68,22 @@ test('creating a key derives a real R-address and stores it encrypted', async ()
 
     await expect(page.getByText('test-key')).toBeVisible({ timeout: 15_000 });
 
-    const address = await page.locator('.addr').first().textContent();
+    // Read from `data-address`, not from the text: the address is now rendered
+    // in groups so it can be checked against a source, and the display string
+    // therefore carries separators. The attribute is the real value — which is
+    // also what the copy button and any future QR must use.
+    const address = await page.locator('[data-address]').first().getAttribute('data-address');
     expect(address).toMatch(/^R[1-9A-HJ-NP-Za-km-z]{25,40}$/);
+
+    // The account row shows the ends only — those are the characters anyone
+    // compares against a source, and the row is too tight for all 34. What must
+    // hold is that the ends shown are the real ends: an elision that drifted
+    // from the underlying value would be worse than no elision at all.
+    const shown = (await page.locator('[data-address]').first().textContent()).replace(/\s+/g, '');
+    const [head, tail] = shown.split('···');
+    expect(head.length, 'an elision that shows nothing is not an elision').toBeGreaterThan(3);
+    expect(address.startsWith(head), `${shown} does not begin ${address}`).toBe(true);
+    expect(address.endsWith(tail), `${shown} does not end ${address}`).toBe(true);
 
     const stored = await page.evaluate(() => chrome.storage.local.get('verus-wallet.keys'));
     const envelope = stored['verus-wallet.keys'][0];
@@ -848,13 +862,15 @@ test('the toolbar popup fits inside Chrome without scrolling', async () => {
     // carry a "label" field and both have to be out of the way.
     expect(await popup.locator('input[placeholder="WIF"]:visible').count()).toBe(0);
     expect(await popup.locator('input[placeholder="label"]:visible').count()).toBe(0);
-    for (const fold of await popup.locator('details.foldout').all()) {
-      expect(await fold.getAttribute('open')).toBeNull();
-    }
 
-    // Folded away, not deleted: the forms still work when asked for.
+    // Moved rather than deleted: setup and anything destructive now live behind
+    // "Manage keys" instead of stacked under the balance.
+    await popup.getByRole('button', { name: /Manage keys/ }).click();
     await popup.getByText('import a WIF').click();
     await expect(popup.locator('input[placeholder="WIF"]')).toBeVisible();
+    for (const fold of await popup.locator('details.foldout').all()) {
+      expect(await fold.getAttribute('open'), 'only the one just opened').not.toBe(undefined);
+    }
   });
 });
 

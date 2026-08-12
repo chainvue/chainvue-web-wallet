@@ -422,12 +422,17 @@ test('a send says it came from the wallet, not from a website', async () => {
     const approval = await approvalWindow(context);
     const text = await approval.locator('body').textContent();
 
-    expect(text).toMatch(/no website asked for it/i);
+    expect(text).toMatch(/no website asked for this/i);
     expect(text, 'a local send must not claim a site requested it').not.toMatch(/requested by/i);
     expect(text, 'no origin should appear').not.toMatch(/https?:\/\//);
 
-    // And it still shows what is about to happen.
-    expect(text).toMatch(/RXdSvjZgRrNjtxVHEm13TH1pVTjt1obzKU/);
+    // And it still shows what is about to happen. The destination is asserted
+    // through `data-address` because it is now rendered in groups — which is
+    // the point, but it means the display string carries separators. Both are
+    // checked: the real value, and that grouping did not alter it.
+    const shown = approval.locator('[data-address]').first();
+    expect(await shown.getAttribute('data-address')).toBe('RXdSvjZgRrNjtxVHEm13TH1pVTjt1obzKU');
+    expect((await shown.textContent()).replace(/\s+/g, '')).toBe('RXdSvjZgRrNjtxVHEm13TH1pVTjt1obzKU');
     expect(text).toMatch(/0\.1/);
   });
 });
@@ -452,7 +457,7 @@ test('rejecting a send closes the window and broadcasts nothing', async () => {
 
 test('an unfunded wallet offers nothing to send rather than a broken form', async () => {
   await withLocalWallet(async ({ popup }) => {
-    await popup.locator('summary', { hasText: 'send' }).first().click();
+    await popup.getByRole('button', { name: /Send/ }).click();
 
     // Asserted through the select's options rather than by visibility: an
     // <option> is never "visible" to a browser-driver, so waiting for it to
@@ -467,6 +472,10 @@ test('an unfunded wallet offers nothing to send rather than a broken form', asyn
       )
       .toMatch(/nothing to send/);
 
-    await expect(popup.getByRole('button', { name: 'review' })).toBeDisabled();
+    // A disabled control has to say what would enable it — the old form left
+    // this grey beside an unrelated address error.
+    const review = popup.getByRole('button', { name: 'Review payment' });
+    await expect(review).toBeDisabled();
+    expect(await review.getAttribute('title')).toMatch(/holds nothing/i);
   });
 });

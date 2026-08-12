@@ -227,6 +227,58 @@ function canSignFor(row, address) {
   return (row?.minimumsignatures ?? 1) <= 1;
 }
 
+/**
+ * What this address has recently done.
+ *
+ * The most common question a wallet is opened to answer after "what do I have"
+ * is "did it go through", and until now there was no way to ask it here at all.
+ *
+ * `getaddressdeltas` reports one row per output touched, so a single
+ * transaction appears several times — a spend and its change are two rows of
+ * the same txid with opposite signs. Netting per txid is what turns that into
+ * something a person recognises: one line, one direction, one amount.
+ *
+ * Deliberately shallow. This is a glance, not an accounting record: the newest
+ * few, native amounts only, and no attempt to name a counterparty — an address
+ * a transaction paid is not the same thing as who was paid.
+ */
+export async function recentActivity(node, address, limit = 4) {
+  let deltas;
+  try {
+    deltas = await rpc(node, 'getaddressdeltas', [{ addresses: [address] }]);
+  } catch {
+    return []; // an older node without the index is not an error worth showing
+  }
+  if (!Array.isArray(deltas)) return [];
+
+  const byTx = new Map();
+  for (const delta of deltas) {
+    const txid = delta?.txid;
+    if (!txid) continue;
+    const entry = byTx.get(txid) ?? { txid, satoshis: 0, time: 0, height: 0 };
+    entry.satoshis += Number(delta.satoshis) || 0;
+    entry.time = Math.max(entry.time, Number(delta.blocktime) || 0);
+    entry.height = Math.max(entry.height, Number(delta.height) || 0);
+    byTx.set(txid, entry);
+  }
+
+  return [...byTx.values()]
+    // A transaction that nets to zero only moved value between this address's
+    // own outputs. "Moved 0" is not information, so it is not a row.
+    .filter((entry) => entry.satoshis !== 0)
+    .sort((a, b) => b.height - a.height || b.time - a.time)
+    .slice(0, limit)
+    .map((entry) => ({
+      txid: entry.txid,
+      time: entry.time,
+      height: entry.height,
+      // The sign is the direction. A net of zero is a transaction that only
+      // moved value between this address's own outputs.
+      direction: entry.satoshis > 0 ? 'in' : 'out',
+      coins: Math.abs(entry.satoshis) / 1e8,
+    }));
+}
+
 const nameCache = new Map();
 
 /** Resolve currency ids to names, one lookup each, cached for the session. */

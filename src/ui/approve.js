@@ -19,12 +19,13 @@ import init, {
   formatCoins,
   planCommitmentStatus,
 } from '../vendor/verus-wasm/verus_wasm.js';
-import { el, mount, row, panel } from '../lib/dom.js';
+import { el, mount, row, panel, address as addressEl } from '../lib/dom.js';
 import { NETWORKS, rpc, broadcast, tokenUtxos, identityAddress } from '../lib/rpc.js';
 import { runOnce } from '../lib/driver.js';
 import { find, primary, open as openVault } from '../lib/vault.js';
 import { remember, recall, forget } from '../lib/pending.js';
 import { LOCAL_METHODS, SEND_PATH, PORT } from '../lib/protocol.js';
+import { elide } from '../lib/fmt.js';
 import { convertForm } from './convert-form.js';
 // One definition of what a conversion costs. The build pays it and the form
 // checks it can be afforded; two copies would eventually disagree, and the
@@ -111,14 +112,62 @@ function keepWorkerAwake() {
  */
 function requestHeader(request) {
   if (request.local) {
-    return el('div', { class: 'origin origin-local' }, [
-      el('div', { class: 'small' }, 'started here'),
-      el('div', {}, 'you began this in the wallet — no website asked for it'),
-    ]);
+    return el('div', { class: 'prov local' }, '● Started in your wallet — no website asked for this');
   }
-  return el('div', { class: 'origin' }, [
-    el('div', { class: 'small' }, 'requested by'),
-    el('div', {}, request.origin),
+  return el('div', { class: 'prov' }, [
+    el('span', {}, 'Requested by '),
+    el('span', { class: 'data' }, String(request.origin ?? 'an unknown origin')),
+  ]);
+}
+
+/**
+ * Stage one for a payment, ranked.
+ *
+ * Every other request type still renders as labelled rows, which suits them —
+ * a launch is a dozen facts of roughly equal weight. A payment is two facts,
+ * how much and to whom, and a handful of supporting detail. Rendering those two
+ * at the same size as "chain" was the single worst thing about this screen.
+ */
+function sendBody(request, net) {
+  const [params = {}] = request.params;
+  const asset = params.currencyName ?? net.native;
+  const fromIdentity =
+    params.path === SEND_PATH.IDENTITY_TOKEN || params.path === SEND_PATH.IDENTITY_NATIVE;
+  const token = params.path === SEND_PATH.TOKEN || params.path === SEND_PATH.IDENTITY_TOKEN;
+
+  return [
+    el('div', { class: 'lede' }, [
+      el('div', { class: 'lede-kicker' }, 'You are sending'),
+      el('div', { class: 'lede-amount' }, [
+        String(params.amount ?? '—'),
+        el('span', { class: 'unit' }, asset),
+      ]),
+    ]),
+    el('div', { class: 'dest' }, [
+      el('div', { class: 'dest-kicker' }, 'To'),
+      addressEl(String(params.to ?? '')),
+    ]),
+    el('div', { class: 'facts' }, [
+      fromIdentity ? fact('From', String(params.identity)) : null,
+      fact('Signing key', request.keyLabel),
+      fact('Network', net.label),
+      fact('Network fee', 'calculated when built'),
+    ].filter(Boolean)),
+    token
+      ? el('div', { class: 'note' }, `The miner fee is paid in ${net.native} from this key, not out of the token.`)
+      : null,
+    el(
+      'div',
+      { class: 'note' },
+      'A payment cannot be undone. The next screen shows the transaction as actually built — real txid, real fee — before anything is sent.',
+    ),
+  ].filter(Boolean);
+}
+
+function fact(label, value) {
+  return el('div', { class: 'fact' }, [
+    el('span', { class: 'fact-k' }, label),
+    el('span', { class: 'fact-v' }, value),
   ]);
 }
 
@@ -174,12 +223,27 @@ async function renderRequest(request) {
     }
   });
 
+  // A payment gets its own ranked layout; everything else keeps the labelled
+  // rows, which suit a request made of a dozen facts of equal weight. The
+  // "signing with" panel is folded into the payment body rather than repeated.
+  const isSend = request.method === LOCAL_METHODS.SEND;
+  const body = form
+    ? [form.node]
+    : isSend
+      ? sendBody(request, net)
+      : [
+          panel('what it will do', describe(request)),
+          panel('signing with', [row('key', request.keyLabel), row('chain', net.label)]),
+        ];
+
   mount(
     root,
     requestHeader(request),
-    form ? form.node : panel('what it will do', describe(request)),
-    panel('signing with', [row('key', request.keyLabel), row('chain', net.label)]),
-    el('div', {}, [el('label', { for: 'pass' }, 'passphrase'), pass]),
+    ...body,
+    el('div', { class: 'field', style: 'margin-top:0.9rem' }, [
+      el('label', { for: 'pass' }, 'Passphrase'),
+      pass,
+    ]),
     el('div', { class: 'buttons' }, [cancel, build]),
     status,
   );
@@ -267,32 +331,6 @@ function describe(request) {
           )
         : null,
       el('p', { class: 'muted small' }, 'The payout goes to this wallet\'s own address. The page cannot choose where it lands.'),
-    ].filter(Boolean);
-  }
-
-  if (request.method === LOCAL_METHODS.SEND) {
-    const asset = params.currencyName ?? params.currency ?? 'the native coin';
-    const fromIdentity =
-      params.path === SEND_PATH.IDENTITY_TOKEN || params.path === SEND_PATH.IDENTITY_NATIVE;
-    const token = params.path === SEND_PATH.TOKEN || params.path === SEND_PATH.IDENTITY_TOKEN;
-
-    return [
-      row('action', 'send'),
-      row('amount', `${params.amount} ${asset}`),
-      row('to', String(params.to)),
-      fromIdentity ? row('from', String(params.identity)) : null,
-      token
-        ? el(
-            'p',
-            { class: 'muted small' },
-            'The miner fee is paid in the chain\'s own coin from this key, not out of the token.',
-          )
-        : null,
-      el(
-        'p',
-        { class: 'warn small' },
-        'A payment cannot be undone. The next screen shows the transaction as built, with the address it actually pays, before anything is sent.',
-      ),
     ].filter(Boolean);
   }
 
@@ -944,16 +982,9 @@ function renderBuilt(request, net, built) {
 
   const rows = [row('txid', v.txid)];
   if (built.kind === 'send') {
-    // Re-derived, not echoed. The amount is formatted back from the satoshis
-    // that were actually signed, and a name shows the address it resolved to —
-    // the point of this screen is that it reports a fact rather than repeating
-    // the claim from the previous one.
-    rows.push(row('paying', `${formatCoins(built.satoshis)} ${built.asset}`));
-    rows.push(row('to', built.shown));
-    if (built.resolved) rows.push(row('which is', built.resolved));
-    if (built.from) rows.push(row('from', built.from));
-    if (v.fee) rows.push(row('miner fee', `${formatCoins(v.fee)} ${net.native}`));
-    if (v.change) rows.push(row('change', `${formatCoins(v.change)} ${net.native}`));
+    // Handled entirely by `builtSend` below — the whole point of stage two is
+    // that it is a different kind of thing from stage one, and it cannot say so
+    // while wearing the same stack of rows.
   } else if (built.kind === 'launch') {
     rows.push(row('currency id', v.currencyId));
     rows.push(row('starts at block', String(v.startBlock)));
@@ -1008,14 +1039,58 @@ function renderBuilt(request, net, built) {
     }
   });
 
+  send.textContent = 'Broadcast';
+  drop.textContent = 'Discard';
+
   mount(
     root,
     requestHeader(request),
-    panel('built — nothing has been sent yet', rows),
-    el('p', { class: 'muted small' }, 'The transaction is signed and sitting in this window. Nothing reaches the chain until you broadcast.'),
+    ...(built.kind === 'send'
+      ? builtSend(built, net, v)
+      : [
+          panel('built — nothing has been sent yet', rows),
+          el('p', { class: 'muted small' }, 'The transaction is signed and sitting in this window. Nothing reaches the chain until you broadcast.'),
+        ]),
     el('div', { class: 'buttons' }, [drop, send]),
     status,
   );
+}
+
+/**
+ * The payment as built — a fact, and made to look like one.
+ *
+ * Everything here is re-derived rather than echoed from stage one: the amount
+ * is formatted back out of the satoshis that were actually signed, and a
+ * friendly name shows the `i…` address it really resolved to. That is the whole
+ * argument for the second stage, and it is worth nothing if the screen simply
+ * repeats the claim the previous one made.
+ */
+function builtSend(built, net, v) {
+  return [
+    el('div', { class: 'lede' }, [
+      el('span', { class: 'built-badge' }, '✓ Built · not yet sent'),
+      el('div', { class: 'lede-amount' }, [
+        formatCoins(built.satoshis),
+        el('span', { class: 'unit' }, built.asset),
+      ]),
+    ]),
+    el('div', { class: 'dest' }, [
+      el('div', { class: 'dest-kicker' }, 'Pays'),
+      addressEl(built.to),
+      built.resolved ? el('div', { class: 'dest-resolved' }, `${built.shown} resolved to this address`) : null,
+    ].filter(Boolean)),
+    el('div', { class: 'facts' }, [
+      fact('Transaction id', elide(v.txid, 10, 8)),
+      built.from ? fact('From', built.from) : null,
+      v.fee ? fact('Miner fee', `${formatCoins(v.fee)} ${net.native}`) : null,
+      v.change ? fact('Change back to you', `${formatCoins(v.change)} ${net.native}`) : null,
+    ].filter(Boolean)),
+    el(
+      'div',
+      { class: 'note good' },
+      'This transaction is signed and sitting in this window. Nothing reaches the chain until you broadcast.',
+    ),
+  ];
 }
 
 async function reject(message) {

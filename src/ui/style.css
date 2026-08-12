@@ -6,12 +6,21 @@
   --label: #8a8a8a;
   --value: #d7ffd7;
   --accent: #5fff87;
-  --muted: #585858;
+  /* Was #585858 — 2.88:1 against --bg, which is roughly half what WCAG asks
+     of body text, and it is what renders addresses and every line of help.
+     #7d8a7d measures 5.66:1 and still reads as dim beside --value at 18.69. */
+  --muted: #7d8a7d;
   --warn: #ffaf00;
   --danger: #ff5f5f;
   --bg: #000600;
   --bg-panel: #010d01;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* Monospace is right for data — an address, an amount, a txid — where
+     character alignment is the point. It is wrong for chrome: it has no usable
+     weight range, so all-caps headings end up doing the work a type scale
+     should do, and they cannot. The system face costs no download and paints
+     on the first frame, which matters in a popup. */
+  --ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -96,21 +105,12 @@ h1 {
 .small { font-size: 11px; }
 .num { font-variant-numeric: tabular-nums; }
 
-.origin {
-  border-left: 2px solid var(--warn);
-  padding: 0.35rem 0.6rem;
-  color: var(--warn);
-  margin-bottom: 0.7rem;
-  word-break: break-all;
-}
+/* Superseded by `.prov`. Kept only because `word-break: break-all` here was
+   the bug that hyphenated prose mid-word — "no website as / ked for it" — and
+   the replacement uses `overflow-wrap: anywhere`, which breaks long addresses
+   without chopping sentences. */
 
-/* A request the user started here is not a request from anywhere, and the amber
-   frame would read as a site called "the wallet popup". Different colour and
-   different words, because confusing the two is the risk sending introduces. */
-.origin-local {
-  border-left-color: var(--accent);
-  color: var(--accent);
-}
+
 
 label { display: block; color: var(--label); font-size: 11px; margin-bottom: 0.15rem; }
 
@@ -181,3 +181,206 @@ button:disabled { border-color: var(--muted); color: var(--muted); cursor: progr
 hr { border: none; border-top: 1px solid var(--frame); margin: 0.8rem 0; }
 
 .holdings-head { margin-top: 0.35rem; padding-top: 0.25rem; border-top: 1px dotted #00350033; }
+
+/* ==========================================================================
+   Hierarchy.
+   
+   Everything above this line renders at one size in one face, which is the
+   single biggest problem with the interface: the amount somebody is about to
+   send has exactly the weight of the word "chain". A terminal has hierarchy
+   too — bold, dim, rules, scale — this just was not using any of it.
+   
+   The rule below: mono for values, the UI face for chrome, and size reserved
+   for the two questions a wallet exists to answer — what do I have, and where
+   is this going.
+   ========================================================================== */
+
+.ui { font-family: var(--ui); }
+.data { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* --- an address, grouped so it can be checked ---------------------------- */
+.addr-chunks {
+  font-family: var(--mono);
+  letter-spacing: 0.03em;
+  word-spacing: 0.22em;
+  overflow-wrap: anywhere;
+  color: var(--label);
+}
+/* The first and last groups are the ones anyone actually compares. */
+.addr-chunks .addr-end { color: var(--value); }
+
+/* --- top bar ------------------------------------------------------------- */
+.bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 0.5rem; padding-bottom: 0.7rem; margin-bottom: 0.2rem;
+  border-bottom: 1px solid #0e2a0e;
+}
+.bar-mark { font: 700 11px/1 var(--mono); letter-spacing: 0.16em; color: var(--title); }
+.chip {
+  font: 600 10px/1 var(--ui); letter-spacing: 0.08em; text-transform: uppercase;
+  border: 1px solid var(--frame); color: var(--accent);
+  padding: 0.25rem 0.5rem; border-radius: 999px; background: transparent;
+  cursor: pointer;
+}
+.chip:hover { background: #04200420; }
+
+/* --- account row --------------------------------------------------------- */
+.acct { display: flex; align-items: center; gap: 0.55rem; padding: 0.75rem 0 0; }
+.acct-id { min-width: 0; }
+.acct-name { font: 600 13px/1.3 var(--ui); color: var(--value); overflow-wrap: anywhere; }
+.acct-addr { font-size: 11px; margin-top: 1px; }
+.avatar {
+  width: 26px; height: 26px; border-radius: 6px; flex: 0 0 auto;
+  background: linear-gradient(135deg, #0b3d14, var(--accent));
+}
+
+/* --- the balance headline ------------------------------------------------ */
+.balance { padding: 0.9rem 0 0.1rem; }
+.balance-num {
+  font: 400 32px/1.05 var(--mono); font-variant-numeric: tabular-nums;
+  color: var(--value); letter-spacing: -0.02em; overflow-wrap: anywhere;
+}
+/* Magnitude first: the decimals are dimmed so the eye lands on what matters. */
+.balance-num .dec { color: var(--muted); }
+.balance-unit { font-size: 13px; color: var(--accent); margin-left: 0.35rem; }
+.balance-sub { font-size: 12px; color: var(--muted); margin-top: 0.15rem; font-family: var(--ui); }
+
+/* --- primary actions ----------------------------------------------------- */
+.actions { display: flex; gap: 0.5rem; padding: 0.85rem 0 0.2rem; }
+.actions button {
+  flex: 1; border-radius: 6px; padding: 0.6rem 0;
+  font: 600 13px/1 var(--ui); letter-spacing: 0;
+}
+.actions button.fill { background: #04200430; }
+
+/* --- sections ------------------------------------------------------------ */
+.sec-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font: 600 10px/1 var(--ui); letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--muted); padding: 0.9rem 0 0.45rem;
+  border-top: 1px solid #0e2a0e; margin-top: 0.7rem;
+}
+
+.hold-row { display: flex; align-items: center; gap: 0.55rem; padding: 0.3rem 0; min-width: 0; }
+.hold-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: 0 0 auto; }
+.hold-dot.token { background: #1f7a33; }
+.hold-name { font-family: var(--ui); overflow-wrap: anywhere; min-width: 0; }
+.hold-amount { margin-left: auto; flex: 0 0 auto; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.tag {
+  font: 600 9px/1 var(--ui); letter-spacing: 0.06em;
+  border: 1px solid var(--frame); color: var(--muted);
+  padding: 0.15rem 0.3rem; border-radius: 999px; flex: 0 0 auto;
+}
+
+/* --- activity ------------------------------------------------------------ */
+.act-row { display: flex; align-items: baseline; gap: 0.5rem; padding: 0.28rem 0; font-size: 12.5px; min-width: 0; }
+.act-arrow { font-family: var(--mono); flex: 0 0 auto; }
+.act-arrow.in { color: var(--accent); }
+.act-arrow.out { color: var(--label); }
+.act-what { font-family: var(--ui); min-width: 0; overflow-wrap: anywhere; }
+.act-when { margin-left: auto; color: var(--muted); font-size: 11px; flex: 0 0 auto; font-family: var(--ui); }
+
+/* --- receive ------------------------------------------------------------- */
+.receive-addr {
+  border: 1px solid var(--frame); background: var(--bg-panel);
+  padding: 0.75rem; border-radius: 6px; font-size: 14px; line-height: 1.7;
+  text-align: center;
+}
+
+/* --- approval: the decision, made to look like one ----------------------- */
+.prov {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.55rem 0.7rem; margin-bottom: 0.8rem;
+  font: 11.5px/1.45 var(--ui);
+  border-left: 2px solid var(--warn); color: var(--warn);
+  /* `anywhere` and not `break-all`: this is prose, and break-all hyphenates it
+     mid-word ("no website as / ked for it"). */
+  overflow-wrap: anywhere;
+}
+.prov.local { border-left-color: var(--accent); color: var(--accent); background: #04200420; }
+
+.lede { padding: 0.2rem 0 0.1rem; }
+.lede-kicker {
+  font: 600 10px/1 var(--ui); letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--muted);
+}
+.lede-amount {
+  font: 400 30px/1.1 var(--mono); font-variant-numeric: tabular-nums;
+  color: var(--value); letter-spacing: -0.02em; margin-top: 0.4rem; overflow-wrap: anywhere;
+}
+.lede-amount .unit { font-size: 14px; color: var(--accent); margin-left: 0.3rem; }
+
+.dest {
+  border: 1px solid var(--frame); border-radius: 6px;
+  padding: 0.6rem 0.7rem; margin-top: 0.8rem; background: #04200418;
+}
+.dest-kicker {
+  font: 600 10px/1 var(--ui); letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 0.35rem;
+}
+.dest-resolved { font-size: 11px; color: var(--muted); margin-top: 0.35rem; font-family: var(--ui); }
+
+.facts { margin-top: 0.8rem; }
+.fact {
+  display: flex; justify-content: space-between; gap: 0.8rem;
+  padding: 0.35rem 0; font-size: 12.5px; border-bottom: 1px solid #0e2a0e;
+}
+.fact:last-child { border-bottom: 0; }
+.fact-k { color: var(--muted); font-family: var(--ui); flex: 0 0 auto; }
+.fact-v { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+
+.note {
+  margin-top: 0.8rem; padding: 0.5rem 0.65rem;
+  border-left: 2px solid var(--warn); background: #2a1c0020;
+  font: 11.5px/1.5 var(--ui); color: var(--warn);
+}
+.note.good { border-left-color: var(--accent); background: #04200420; color: var(--accent); }
+
+/* Stage two has to be visibly a different thing from stage one — that a built
+   transaction is a fact and a request is a claim is the wallet's whole idea,
+   and until now both screens were the same stack of grey rows. */
+.built-badge {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  font: 600 10px/1 var(--ui); letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--accent); border: 1px solid var(--frame);
+  border-radius: 999px; padding: 0.3rem 0.55rem;
+}
+
+/* --- forms --------------------------------------------------------------- */
+.field { margin-bottom: 0.7rem; }
+.field > label {
+  font: 600 10px/1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 0.3rem;
+}
+.field input, .field select { margin-bottom: 0; }
+.field input:focus-visible { border-color: var(--accent); }
+.help { font: 11.5px/1.45 var(--ui); color: var(--muted); margin-top: 0.3rem; overflow-wrap: anywhere; }
+.help.good { color: var(--accent); }
+.help.bad { color: var(--danger); }
+
+.amount-wrap { position: relative; }
+.amount-wrap input { padding-right: 5.2rem; }
+.amount-suffix {
+  position: absolute; right: 0.4rem; top: 50%; transform: translateY(-50%);
+  display: flex; align-items: center; gap: 0.35rem;
+}
+.amount-unit { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+.max-btn {
+  border: 1px solid var(--frame); color: var(--accent); background: transparent;
+  border-radius: 4px; padding: 0.15rem 0.35rem;
+  font: 600 10px/1 var(--ui); cursor: pointer; flex: 0 0 auto;
+}
+
+/* A quiet home for something that deletes money. It was the most button-like
+   element on the front page. */
+.danger-zone { border-color: #5a1f1f; }
+.danger-zone button { border-color: #5a1f1f; color: var(--danger); }
+
+/* A select inherits the full-width rule above; as a chip it must not. */
+select.chip { width: auto; max-width: 11rem; padding-right: 1.2rem; }
+.sec-head .chip { flex: 0 0 auto; }
+
+/* Controls are chrome, so they take the UI face. Monospace is kept for values,
+   where character alignment is the point — a button label is not a value. */
+button { font-family: var(--ui); font-weight: 600; letter-spacing: 0; }
+.buttons button { border-radius: 6px; }

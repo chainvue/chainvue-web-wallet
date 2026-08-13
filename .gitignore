@@ -16,5 +16,12 @@ dist/
 # release impossible to verify and contradicts the claim this comment used to
 # make. Committing it is what makes "the bytes are determined by the lockfile
 # and the pin" true.
-src/vendor/
+# `src/vendor/*` and not `src/vendor/`: git does not descend into an ignored
+# directory, so a negation below it never gets the chance to match.
+src/vendor/*
 wasm/target/
+
+# The QR encoder is third-party SOURCE rather than build output, so it is
+# committed — the bytes that reach a user can then be read here and checked
+# against what npm publishes. See src/vendor/qr/README.md.
+!src/vendor/qr/

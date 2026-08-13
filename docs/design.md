@@ -124,6 +124,30 @@ Done:
 - `window.verus` is frozen and non-configurable.
 - Everything rendered goes through `textContent`; a currency name is chain data
   and anyone can put a currency on the chain.
+- **A key can be backed up.** It could not be, which meant every key the wallet
+  generated existed only as one encrypted blob in one browser profile — one
+  wiped profile from being unrecoverable, while the delete dialog warned about
+  exactly that state and offered no way out of it. `Manage keys → Back up`
+  decrypts in the popup, under the passphrase, and writes nothing.
+- **Mainnet is visibly mainnet.** The chain sets `data-chain` on the root of
+  both documents; `[data-chain="real"]` swaps the whole palette from green
+  phosphor to cyan and adds a rail. Every token moves together — ground, frames,
+  hairlines, washes, the skeleton shimmer, the avatar, the token dots — because
+  the first attempt changed only the frames and looked like a half-applied
+  theme: fifteen greens were baked into rules instead of tokenised.
+  Amber was the obvious choice and is the wrong one, because `--warn` is amber
+  and carries "a website asked for this" and "read this before continuing"; an
+  amber interface leaves every warning the same colour as the chrome. Red is
+  taken by destruction. Cyan costs no existing meaning.
+  What deliberately does **not** move: `--danger`, `--warn`, and `--prov-local`
+  / `--prov-site` — the pair that says whether you or a website started a
+  request has to be learnable across both chains.
+  The stamp is applied synchronously from a `localStorage` mirror before
+  anything is awaited, because `chrome.storage` is async and the popup is on
+  screen through a 918 KB wasm instantiation — long enough to flash the wrong
+  chain's colours on the one screen whose job is to be unmistakable.
+  Switching *into* mainnet asks; switching back does not, because a prompt that
+  appears both ways is one people learn to dismiss without reading.
 
 Not done, and worth knowing:
 
@@ -136,7 +160,64 @@ Not done, and worth knowing:
   window is open. The window says so rather than appearing to succeed, but the
   request is lost and must be retried. The approval window holds a port open to
   make this rare.
-- **Mainnet is selectable.** Nothing stops you pointing this at real VRSC.
+- **Mainnet is selectable.** Nothing stops you pointing this at real VRSC — it
+  is now unmistakable on screen, which is not the same as being prevented.
+- **A session unlock weakens the boundary, briefly and by choice.** Ticking
+  "stay unlocked" keeps something in extension memory that can open one envelope
+  for five minutes. What is kept is the PBKDF2 output for that one key: not the
+  passphrase, so it cannot be tried against anything else the user has ever used
+  it for, and not the WIF, so it is not directly spendable. It lives in
+  `chrome.storage.session` — memory, never disk, cleared when the browser
+  closes, unreadable from a content script — and "Lock now" erases it. The
+  alternative is not a stronger boundary; it is a short passphrase, which
+  weakens the same boundary permanently and everywhere. Off by default. See
+  `src/lib/session.js`.
+
+## Pricing comes from the chain
+
+A balance denominated only in its own coin has no reference point, and the usual
+fix is a price aggregator — which means a second host in `host_permissions`, an
+install-time warning naming it, and a request on every popup open telling a third
+party that somebody just looked at their wallet.
+
+Verus prices its own currencies, so none of that is necessary. `bridge.vETH` is a
+basket holding the native coin and `DAI.vETH` among its reserves, and one
+`getcurrency` returns `priceinreserve` for every reserve at once: a reserve's
+price in DAI is the ratio of the two. Same basket, same reserve, on both chains.
+
+It is a **mid price, not a quote** — what a holding is worth, rather than what a
+conversion would pay after fees. `estimateconversion` answers the other question
+and costs one call per asset. The two agree to within the fee, which is what
+`tests/extension.test.mjs` checks: the failure worth catching is the ratio being
+the wrong way up, and inverted it misses the quote by more than threefold.
+
+Anything outside the basket has no price, and the wallet says nothing about it
+rather than showing a zero. On a chain where anyone can define a currency that is
+most of what a wallet holds — sixteen holdings with one price, measured — so the
+list is ranked to put the native coin and everything priceable first.
+
+Testnet uses DAI too. It has a `USD` currency, but it is mintable by its issuer,
+has a single reserve, and cannot be converted to from VRSCTEST at all
+(`estimateconversion` answers `Source currency cannot be converted to
+destination`). A single-reserve basket is a fixed price by construction.
+
+## Third-party code that runs in the wallet
+
+Two pieces, both vendored into `src/vendor/` rather than resolved at build time,
+so what a user runs is what can be read here and in the store upload.
+
+- **The Verus Rust SDK**, compiled to WebAssembly and pinned by revision. It
+  does all the signing. Not committed — reproduced by `npm run build:wasm` from
+  the pin in `wasm/Cargo.toml` and the lockfile beside it.
+- **`uqr`**, a port of Project Nayuki's reference QR generator, for the address
+  on the Receive screen. Committed, unmodified, with its checksum recorded in
+  [`src/vendor/qr/README.md`](../src/vendor/qr/README.md) so the copy can be
+  checked against what npm publishes.
+
+Nothing else. A QR code that is subtly wrong scans cleanly to the wrong address,
+which is why that one is neither hand-written nor taken on trust: the test suite
+decodes the pixels the wallet actually draws, with an independent decoder, and
+compares the result to the address.
 
 ## Packaging
 

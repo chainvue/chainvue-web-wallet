@@ -20,10 +20,12 @@ import init, {
   planCommitmentStatus,
 } from '../vendor/verus-wasm/verus_wasm.js';
 import { el, mount, row, panel, address as addressEl } from '../lib/dom.js';
-import { NETWORKS, rpc, broadcast, tokenUtxos, identityAddress } from '../lib/rpc.js';
+import { NETWORKS, rpc, broadcast, tokenUtxos, identityAddress, applyChain } from '../lib/rpc.js';
 import { runOnce } from '../lib/driver.js';
-import { find, primary, open as openVault } from '../lib/vault.js';
+import { find, primary, openWith, unlockBits, bitsToText, bitsFromText } from '../lib/vault.js';
+import { hold, held, release, minutesLeft, MINUTES } from '../lib/session.js';
 import { remember, recall, forget } from '../lib/pending.js';
+import { remember as rememberRecipient } from '../lib/recipients.js';
 import { LOCAL_METHODS, SEND_PATH, PORT } from '../lib/protocol.js';
 import { elide } from '../lib/fmt.js';
 import { convertForm } from './convert-form.js';
@@ -36,6 +38,9 @@ import { parseDestination, KIND } from '../lib/address.js';
 
 const root = document.getElementById('root');
 const id = new URLSearchParams(location.search).get('id');
+
+// The window that signs must not paint the wrong chain, even for a frame.
+applyChain();
 
 const CONFIRMATIONS_AHEAD = 20; // blocks between now and a launch's start
 
@@ -171,13 +176,109 @@ function fact(label, value) {
   ]);
 }
 
+/**
+ * The line this window talks through — and it has to be spoken, not just drawn.
+ *
+ * Everything that happens after the passphrase is typed is reported here and
+ * nowhere else: what step the build is on, why it failed, and the txid once it
+ * is on the wire. With no live region none of that reached anyone using a screen
+ * reader, so the wallet gave no confirmation at all that money had moved.
+ *
+ * `role="status"` rather than `aria-live="assertive"`: it is polite by
+ * definition, which is right for progress, and it does not interrupt someone
+ * mid-sentence to say "unlocking…".
+ */
+function statusLine() {
+  return el('div', { class: 'status', role: 'status' });
+}
+
+/**
+ * The chain, said in words, on the window that signs.
+ *
+ * The colour alone is the fast signal and the words are the slow one, and this
+ * screen is the last place either can still change an outcome. Only on a
+ * real-money chain: a rail that is always present is furniture.
+ *
+ * Put at the top of the document rather than into `#root`, because this window
+ * has an `<h1>` above `#root` — so a rail mounted with the body sat *under* the
+ * heading, which is neither the top of the window nor where the eye starts.
+ * Rendered once, then left alone: `#root` is replaced wholesale between stage
+ * one and stage two, and the chain does not change between them.
+ */
+function mountChainRail(net) {
+  if (!net.real || document.querySelector('.chain-rail')) return;
+  document.body.prepend(el('div', { class: 'chain-rail', role: 'note' }, 'Mainnet · real funds'));
+}
+
+/**
+ * Progress, in words that describe what is happening to the user.
+ *
+ * The driver counts rounds because the SDK's flows are a question-and-answer
+ * loop, and this used to say so: "round 2 — asking the node 3 thing(s)". Nobody
+ * outside this repository knows what a round is, and the count of bodies in it
+ * is an implementation detail of the flow. What a person waiting to sign needs
+ * to know is that the wallet is talking to the node and has not hung — so that
+ * is what it says, with the round kept only as a quiet ordinal so a stall is
+ * still visible as one.
+ */
+function nodeRounds(progress) {
+  return (round) =>
+    progress(round === 1 ? 'Checking with the node…' : `Still checking with the node… (${round})`);
+}
+
 async function renderRequest(request) {
   const net = NETWORKS[request.network] ?? NETWORKS.VRSCTEST;
+  // The authoritative stamp, from the request's own network rather than from
+  // the cache read at the top of the file.
+  applyChain(net.label);
+
   const pass = el('input', { type: 'password', id: 'pass', autocomplete: 'current-password' });
-  const status = el('div', { class: 'status' });
+  const status = statusLine();
 
   const build = el('button', { type: 'button' }, 'build transaction');
   const cancel = el('button', { type: 'button', class: 'secondary' }, 'reject');
+
+  // Looked up once, here, rather than again inside the build: the unlock has to
+  // be checked and stored against this exact envelope, and doing that twice from
+  // two places is how the two end up disagreeing about which key is being used.
+  const envelope = (await find(request.keyLabel)) ?? (await primary());
+  let unlockNow = envelope ? await held(envelope.label).catch(() => null) : null;
+  const gate = el('div', { class: 'field', style: 'margin-top:0.9rem' });
+
+  const keep = el('input', { type: 'checkbox', id: 'keep' });
+
+  function renderGate(current) {
+    if (current) {
+      mount(
+        gate,
+        el('div', { class: 'unlocked' }, [
+          el('span', {}, `Unlocked for ${minutesLeft(current.until)} min`),
+          el(
+            'button',
+            {
+              type: 'button',
+              class: 'link-btn',
+              onclick: async () => {
+                await release(envelope.label);
+                unlockNow = null;
+                renderGate(null);
+                pass.focus();
+              },
+            },
+            'Lock now',
+          ),
+        ]),
+        el('div', { class: 'help' }, 'Locks on its own, and whenever the browser closes.'),
+      );
+      return;
+    }
+    mount(
+      gate,
+      el('label', { for: 'pass' }, 'Passphrase'),
+      pass,
+      el('label', { class: 'keep', for: 'keep' }, [keep, `Stay unlocked for ${MINUTES} minutes`]),
+    );
+  }
 
   /**
    * The form that decides what the page left open, or null.
@@ -205,14 +306,29 @@ async function renderRequest(request) {
   build.addEventListener('click', async () => {
     build.disabled = true;
     cancel.disabled = true;
-    mount(status, el('span', { class: 'muted' }, 'unlocking…'));
+    mount(status, el('span', { class: 'muted' }, 'Unlocking…'));
     try {
       // Resolving the form BEFORE the key is touched. What comes out is an
       // ordinary fully-specified request, so everything downstream — the
       // dispatch, the two-stage approval, stage two's built panel — is the same
       // code that has always run, and cannot drift from the headless path.
       const settled = form ? { ...request, params: [form.read()] } : request;
-      const built = await buildTransaction(settled, net, pass.value, (text) =>
+
+      // Resolve the unlock before anything else touches the key. `unlockBits`
+      // verifies against this envelope, so a wrong passphrase fails here — while
+      // the field that produced it is still on screen — rather than after a
+      // build has been attempted.
+      if (!envelope) throw new Error('the key is gone from the wallet');
+      let bits = unlockNow?.bits ? bitsFromText(unlockNow.bits) : null;
+      if (!bits) {
+        mount(status, el('span', { class: 'muted' }, 'Unlocking…'));
+        bits = await unlockBits(envelope, pass.value);
+        // Remembered on a correct passphrase rather than on a successful build:
+        // a node timing out is not a reason to make somebody type it again.
+        if (keep.checked) await hold(envelope.label, bitsToText(bits)).catch(() => {});
+      }
+
+      const built = await buildTransaction(settled, envelope, net, bits, (text) =>
         mount(status, el('span', { class: 'muted' }, text)),
       );
       renderBuilt(settled, net, built);
@@ -236,20 +352,20 @@ async function renderRequest(request) {
           panel('signing with', [row('key', request.keyLabel), row('chain', net.label)]),
         ];
 
+  mountChainRail(net);
   mount(
     root,
     requestHeader(request),
     ...body,
-    el('div', { class: 'field', style: 'margin-top:0.9rem' }, [
-      el('label', { for: 'pass' }, 'Passphrase'),
-      pass,
-    ]),
+    gate,
     el('div', { class: 'buttons' }, [cancel, build]),
     status,
   );
+  renderGate(unlockNow);
   // The passphrase is the last thing wanted when there is still a trade to
-  // choose, so the form keeps the focus it opens with.
-  if (!form) pass.focus();
+  // choose, so the form keeps the focus it opens with. An already-unlocked
+  // window has no field to focus, so the button that acts gets it instead.
+  if (!form) (unlockNow ? build : pass).focus();
 }
 
 /** What the page claims it wants. Rendered as text, never trusted as truth. */
@@ -337,12 +453,12 @@ function describe(request) {
   return [row('action', request.method)];
 }
 
-async function buildTransaction(request, net, passphrase, progress) {
-  const envelope = (await find(request.keyLabel)) ?? (await primary());
-  if (!envelope) throw new Error('the key is gone from the wallet');
-
-  progress('decrypting the key…');
-  const wif = await openVault(envelope, passphrase);
+async function buildTransaction(request, envelope, net, bits, progress) {
+  progress('Unlocking your key…');
+  // The decrypted key still lives and dies inside this one operation. What a
+  // session unlock skips is the typing and the 600,000 PBKDF2 iterations behind
+  // it — not this decryption, and not the authentication that comes with it.
+  const wif = await openWith(envelope, bits);
 
   const key = Key.fromWif(wif);
   try {
@@ -384,7 +500,7 @@ async function dispatch(key, request, net, progress) {
     // address with the ordinary path. A conversion funded straight from an
     // identity would save the hop but does not exist yet.
     if (request.method === 'verus_sendTokenFromIdentity') {
-      progress('resolving the token…');
+      progress('Looking up the token…');
       const currency = await currencyId(net, params.currency);
       return {
         kind: 'convert',
@@ -403,14 +519,14 @@ async function dispatch(key, request, net, progress) {
               answers,
             ),
           net.node,
-          (round, asked) => progress(`round ${round} — asking the node ${asked} thing(s)…`),
+          nodeRounds(progress),
         ),
       };
     }
 
     if (request.method === 'verus_launchCurrency') {
       const definition = await launchDefinition(params, net, progress);
-      progress('planning the launch…');
+      progress('Preparing the launch…');
       return {
         kind: 'launch',
         value: await runOnce(
@@ -421,13 +537,13 @@ async function dispatch(key, request, net, progress) {
           // identity address`.
           (answers) => key.planLaunch({ identity: asIdentityRef(params.name), definition }, answers),
           net.node,
-          (round, asked) => progress(`round ${round} — asking the node ${asked} thing(s)…`),
+          nodeRounds(progress),
         ),
       };
     }
 
     if (request.method === 'verus_convert') {
-      progress('planning the conversion…');
+      progress('Preparing the swap…');
       const kind = params.kind ?? 'intoFractional';
       const from = await currencyId(net, params.from);
       const into = await currencyId(net, params.into);
@@ -458,7 +574,7 @@ async function dispatch(key, request, net, progress) {
       // Deliberately AFTER the shape checks above rather than first: a
       // malformed request should still be told it is malformed, on a halted
       // chain as much as on a running one.
-      progress('checking the chain is accepting conversions…');
+      progress('Checking the chain is accepting swaps…');
       const halt = await defiHalt(net);
       if (halt?.halted) {
         throw new Error(
@@ -483,11 +599,11 @@ async function dispatch(key, request, net, progress) {
         let label = 'this wallet';
 
         if (params.fromIdentity) {
-          progress("resolving the identity's outputs…");
+          progress("Finding the identity's coins…");
           holderAddress = await identityAddress(net.node, asIdentityRef(params.fromIdentity));
           label = String(params.fromIdentity);
         } else {
-          progress('gathering outputs…');
+          progress('Finding your coins…');
         }
 
         tokenFunding = await tokenUtxos(net.node, holderAddress, from);
@@ -541,7 +657,7 @@ async function dispatch(key, request, net, progress) {
           (answers) =>
             key.planConvert(convertRequest, answers),
           net.node,
-          (round, asked) => progress(`round ${round} — asking the node ${asked} thing(s)…`),
+          nodeRounds(progress),
         ),
       };
     }
@@ -571,18 +687,18 @@ async function sendFunds(key, request, params, net, progress) {
   // future edit to the allowlist cannot quietly turn a page into a spender.
   if (!request.local) throw new Error('a send can only be started from the wallet');
 
-  progress('checking the destination…');
+  progress('Checking where this is going…');
   const parsed = await parseDestination(params.to);
   const to = parsed.kind === KIND.NAME ? await identityAddress(net.node, parsed.to) : parsed.to;
 
   // Throws past eight decimal places; the popup says so in better words first.
   const satoshis = parseCoins(String(params.amount));
 
-  const rounds = (round, asked) => progress(`round ${round} — asking the node ${asked} thing(s)…`);
+  const rounds = nodeRounds(progress);
   const common = { to, shown: parsed.to, resolved: parsed.kind === KIND.NAME ? to : null, satoshis };
 
   if (params.path === SEND_PATH.NATIVE) {
-    progress('finding spendable coins…');
+    progress('Finding coins to spend…');
     return {
       kind: 'send',
       ...common,
@@ -592,7 +708,7 @@ async function sendFunds(key, request, params, net, progress) {
   }
 
   if (params.path === SEND_PATH.IDENTITY_NATIVE) {
-    progress('finding the identity\'s coins…');
+    progress('Finding the identity\'s coins…');
     return {
       kind: 'send',
       ...common,
@@ -638,7 +754,7 @@ async function sendFunds(key, request, params, net, progress) {
     // Not discovered for us, unlike every other path: `getaddressutxos` reports
     // an output's native value, not which token it carries, so the filtering is
     // ours to do.
-    progress('gathering the token outputs…');
+    progress('Finding the token…');
     const utxos = await tokenUtxos(net.node, key.address(), params.currency);
     if (utxos.length === 0) {
       throw new Error(`this wallet holds none of ${params.currencyName ?? params.currency}`);
@@ -679,11 +795,11 @@ async function registerIdentity(key, params, net, progress) {
   const name = String(params.name ?? '').trim().replace(/@$/, '');
   if (!name) throw new Error('no name to register');
 
-  const rounds = (round, asked) => progress(`round ${round} — asking the node ${asked} thing(s)…`);
+  const rounds = nodeRounds(progress);
   const held = await recall(net.label, name);
 
   if (!held) {
-    progress('planning the commitment…');
+    progress('Preparing the first transaction…');
 
     // A referral makes the registration CHEAPER, not dearer: the registrant
     // pays `fee * (levels+1)/(levels+2)` and each referrer takes
@@ -730,7 +846,7 @@ async function registerIdentity(key, params, net, progress) {
   //
   // Reading the anchor's state as the verdict makes a confirmed commitment
   // look permanently unconfirmed, which is exactly what it did.
-  progress('locating the commitment…');
+  progress('Finding your earlier commitment…');
   const wrapper = asPending(held, name);
 
   const anchored = await runOnce(
@@ -741,7 +857,7 @@ async function registerIdentity(key, params, net, progress) {
   );
   await remember(net.label, name, { ...held, pending: anchored });
 
-  progress('checking confirmations…');
+  progress('Checking it has confirmed…');
 
   // `planCommitmentStatus` does NOT return a `Pending`. It returns a union
   // discriminated by `kind`, and the wrapper only exists inside the `ready`
@@ -790,7 +906,7 @@ async function registerIdentity(key, params, net, progress) {
   // the commitment just as surely as losing the first one.
   await remember(net.label, name, { ...held, pending: confirmed });
 
-  progress('planning the registration…');
+  progress('Preparing the second transaction…');
   const done = await runOnce(
     Answers,
     // `confirmed`, not `anchored`: completion refuses anything that is not
@@ -874,7 +990,7 @@ export function asIdentityRef(nameOrId) {
 }
 
 export async function launchDefinition(params, net, progress = () => {}) {
-  progress('reading chain policy…');
+  progress('Reading the chain rules…');
   const parent = await currencyId(net, net.native);
   const tip = await rpc(net.node, 'getblockcount', []);
 
@@ -909,7 +1025,7 @@ export async function launchDefinition(params, net, progress = () => {}) {
     //
     // The recipient must be the identity's `i…` address; the friendly name is
     // refused.
-    progress('resolving the defining identity…');
+    progress('Finding the defining identity…');
     const holder = await rpc(net.node, 'getidentity', [asIdentityRef(base.name)]);
     const recipient = holder?.identity?.identityaddress;
     if (!recipient) throw new Error(`no identity called "${base.name}@" — register it first`);
@@ -978,7 +1094,7 @@ async function currencyId(net, nameOrId) {
 /** Stage two: the transaction exists. Show what it actually is. */
 function renderBuilt(request, net, built) {
   const v = built.value;
-  const status = el('div', { class: 'status' });
+  const status = statusLine();
 
   const rows = [row('txid', v.txid)];
   if (built.kind === 'send') {
@@ -1008,16 +1124,24 @@ function renderBuilt(request, net, built) {
   send.addEventListener('click', async () => {
     send.disabled = true;
     drop.disabled = true;
-    mount(status, el('span', { class: 'muted' }, 'broadcasting…'));
+    mount(status, el('span', { class: 'muted' }, 'Sending it to the network…'));
     try {
       const txid = await broadcast(net.node, v.hex);
-      mount(status, el('span', { class: 'accent' }, `sent: ${txid}`));
+      mount(status, el('span', { class: 'accent' }, `Sent · ${txid}`));
 
       // Only once the reveal is on the wire is the commitment spent and the
       // salt no longer needed. Forgetting any earlier would make the fee
       // unrecoverable; a failed broadcast deliberately leaves it in place so
       // the registration can be retried.
       if (built.kind === 'register') await forget(net.label, built.name);
+
+      // Same rule, opposite direction: a destination becomes a "recent
+      // recipient" only once the node has taken the transaction. Recording it
+      // from the form would offer back addresses that were never paid — and
+      // typos that this window rejected.
+      if (built.kind === 'send' && built.shown) {
+        await rememberRecipient(net.label, built.shown).catch(() => {});
+      }
 
       await chrome.runtime.sendMessage({
         type: 'wallet:approval-result',

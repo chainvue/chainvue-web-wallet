@@ -92,11 +92,22 @@ the thing worth never having twice.
 
 WHAT IT DOES
 
-  • Create or import a key, encrypted under a passphrase
+  • Create or import a key, encrypted under a passphrase — and back it up, so
+    it survives losing the browser
+  • Keep several accounts and switch between them
+  • Know which chain you are on: mainnet is a different colour, and switching
+    into it asks first
   • See every currency at your address — not just the native coin — including
     balances held by identities you control
+  • See what a balance is worth, priced by Verus itself: the bridge.vETH basket
+    quotes it in DAI. No price API, no extra host, no third party told that you
+    opened your wallet
   • Send coins or tokens to an address or to a VerusID name, with the
-    destination checked before anything is built
+    destination checked before anything is built, and the last few people you
+    paid offered back as one tap
+  • Be paid: a QR code and the full address, grouped so it can be checked
+  • See recent activity — how much, to or from whom, and whether it has
+    confirmed yet
   • Claim a VerusID name, resumably, across the two transactions it takes
   • Launch a token or a basket currency
   • Preconvert into a launch, or swap between currencies

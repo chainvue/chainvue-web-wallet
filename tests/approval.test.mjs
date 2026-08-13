@@ -72,11 +72,8 @@ async function withWallet(run) {
     // A real key, deliberately unfunded.
     const setup = await context.newPage();
     await setup.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-    await expect(setup.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
-    await setup.locator('input[placeholder="label"]').first().fill('probe');
-    await setup.locator('input[placeholder="passphrase"]').first().fill(PASSPHRASE);
-    await setup.getByRole('button', { name: 'create key' }).click();
-    await expect(setup.getByText('probe')).toBeVisible({ timeout: 15_000 });
+    await expect(setup.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
+    await createKey(setup, 'probe', PASSPHRASE);
 
     const page = await context.newPage();
     const reached = await page.goto(SITE).catch(() => null);
@@ -156,6 +153,21 @@ async function freeIdentity(page, name) {
 }
 
 // ---------------------------------------------------------------------------
+
+/**
+ * Make a key through the real first-run screen.
+ *
+ * Everything below needs a wallet with a key in it, and every one of them used
+ * to inline the same three lines against placeholders. Asking by label instead
+ * means the setup screen can be rewritten — as it just was — without touching a
+ * dozen tests, and it exercises the label associations while it is there.
+ */
+async function createKey(page, label, passphrase) {
+  await page.getByLabel('Name it').fill(label);
+  await page.getByLabel('Passphrase').fill(passphrase);
+  await page.getByRole('button', { name: 'Create wallet' }).click();
+  await expect(page.getByText(label).first()).toBeVisible({ timeout: 15_000 });
+}
 
 test('registering an identity gets past every shape check', async () => {
   await withWallet(async ({ context, page }) => {
@@ -355,11 +367,8 @@ async function withLocalWallet(run) {
     // evidence that the popup lives in production — it does not.
     const popup = await context.newPage();
     await popup.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-    await expect(popup.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
-    await popup.locator('input[placeholder="label"]').first().fill('probe');
-    await popup.locator('input[placeholder="passphrase"]').first().fill(PASSPHRASE);
-    await popup.getByRole('button', { name: 'create key' }).click();
-    await expect(popup.getByText('probe')).toBeVisible({ timeout: 15_000 });
+    await expect(popup.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
+    await createKey(popup, 'probe', PASSPHRASE);
 
     await run({ context, extensionId, worker, popup });
   } finally {
@@ -477,5 +486,110 @@ test('an unfunded wallet offers nothing to send rather than a broken form', asyn
     const review = popup.getByRole('button', { name: 'Review payment' });
     await expect(review).toBeDisabled();
     expect(await review.getAttribute('title')).toMatch(/holds nothing/i);
+  });
+});
+
+// --- staying unlocked -------------------------------------------------------
+
+test('a session unlock survives into the next approval, and can be revoked', async () => {
+  // The module's storage shape is asserted in extension.test.mjs. This is the
+  // part that has to be true for the feature to mean anything: that the second
+  // approval in a row does not ask again, and that it says so rather than
+  // silently having become easier to spend from.
+  await withLocalWallet(async ({ context, popup }) => {
+    const send = () =>
+      popup.evaluate(async () => {
+        const { PORT, SEND_PATH } = await import('../lib/protocol.js');
+        await chrome.runtime.sendMessage({
+          type: PORT.LOCAL_REQUEST,
+          params: { path: SEND_PATH.NATIVE, to: 'RXdSvjZgRrNjtxVHEm13TH1pVTjt1obzKU', amount: '0.1' },
+        });
+      });
+
+    await send();
+    const first = await approvalWindow(context);
+    await expect(first.locator('#pass')).toBeVisible();
+    await first.locator('#pass').fill(PASSPHRASE);
+    await first.locator('#keep').check();
+    await first.getByRole('button', { name: 'build transaction' }).click();
+
+    // The key was correct, so the unlock is kept — even though this build will
+    // fail on funds, which is the whole point of storing it on a correct
+    // passphrase rather than on a successful build.
+    await expect
+      .poll(async () => (await first.locator('.status').textContent()) ?? '', { timeout: 60_000 })
+      .toMatch(REACHED_VALIDATION);
+    await first.close();
+
+    await send();
+    const second = await approvalWindow(context);
+    await expect(second.getByText(/Unlocked for \d+ min/)).toBeVisible({ timeout: 15_000 });
+    expect(await second.locator('#pass').count(), 'it asked for the passphrase again').toBe(0);
+
+    // And it can be given back on the spot.
+    await second.getByRole('button', { name: 'Lock now' }).click();
+    await expect(second.locator('#pass')).toBeVisible();
+    await second.close();
+
+    await send();
+    const third = await approvalWindow(context);
+    await expect(third.locator('#pass')).toBeVisible({ timeout: 15_000 });
+    expect(await third.getByText(/Unlocked for/).count(), 'Lock now did not stick').toBe(0);
+  });
+});
+
+test('the window that signs says which chain it is signing on', async () => {
+  // The last screen where knowing costs anything. Nothing is built or broadcast
+  // here — opening the window touches no node — so this is safe to run against
+  // a mainnet request.
+  await withLocalWallet(async ({ context, popup }) => {
+    const request = () =>
+      popup.evaluate(async () => {
+        const { PORT, SEND_PATH } = await import('../lib/protocol.js');
+        await chrome.runtime.sendMessage({
+          type: PORT.LOCAL_REQUEST,
+          params: { path: SEND_PATH.NATIVE, to: 'RCvP2M7HjvGLHMf47qopqxsNGBmM97Q4n3', amount: '12.5' },
+        });
+      });
+
+    await request();
+    const onTest = await approvalWindow(context);
+    expect(await onTest.locator('.chain-rail').count(), 'testnet carried a real-funds rail').toBe(0);
+    const testAccent = await onTest.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(),
+    );
+    await onTest.close();
+
+    popup.once('dialog', (d) => d.accept());
+    await popup.locator('select.chip').selectOption('VRSC');
+    await expect.poll(() => popup.evaluate(() => document.documentElement.dataset.chain)).toBe('real');
+
+    await request();
+    const onMain = await approvalWindow(context);
+    const rail = onMain.locator('.chain-rail');
+    await expect(rail).toHaveText(/real funds/i);
+    expect(await onMain.evaluate(() => document.documentElement.dataset.chain)).toBe('real');
+
+    // Flush with the top of the window, above the heading — not tucked under it.
+    const top = await rail.evaluate((n) => n.getBoundingClientRect().top);
+    expect(top, `the rail sits ${top}px down the window`).toBeLessThanOrEqual(0);
+
+    const mainAccent = await onMain.evaluate(() =>
+      getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(),
+    );
+    expect(mainAccent, 'the approval window wears the same accent on both chains').not.toBe(testAccent);
+
+    // And the two meanings that must not move with the chain did not: a send
+    // the user started is still green, and the warning is still amber.
+    const semantic = await onMain.evaluate(() => {
+      const root = getComputedStyle(document.documentElement);
+      return {
+        local: root.getPropertyValue('--prov-local').trim(),
+        warn: root.getPropertyValue('--warn').trim(),
+      };
+    });
+    expect(semantic.local).toBe('#5fff87');
+    expect(semantic.warn).toBe('#ffaf00');
+    await expect(onMain.getByText(/no website asked for this/i)).toBeVisible();
   });
 });

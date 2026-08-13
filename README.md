@@ -12,10 +12,14 @@ until you press Broadcast.
 
 ## What you can do
 
-- Create a wallet, or import one you already have
-- See what you hold — coins, tokens, and anything held by identities you control
-- Receive: copy your address so someone can pay you
+- Create a wallet, or import one you already have — and **back it up**, so it
+  survives losing this browser
+- Keep several accounts and switch between them
+- See what you hold — coins, tokens, and anything held by identities you
+  control, with what it is worth in DAI where the chain can price it
+- Receive: a QR code to scan, or your address to copy
 - Send coins or tokens to an address or to a VerusID name like `alice@`
+- Check recent payments — how much, who to, and whether they have confirmed
 - Claim a VerusID name
 - Launch a token or a currency, and convert between currencies
 
@@ -73,8 +77,14 @@ differently, so the wallet would need changes before it could load there.
 2. **Write the passphrase down.** It is the only thing that can open your wallet.
    Nobody — including us — can recover it or reset it for you. If you lose it,
    the coins are gone.
-3. The wallet starts on **VRSCTEST**, the test network, where the coins are not
-   worth anything. That is the right place to learn it.
+3. **Back it up.** Open **Manage keys → Back up**, type your passphrase, and
+   write down the key it shows you. The passphrase alone cannot recover
+   anything — it only unlocks what is stored in this browser, so if the browser
+   goes, so do the coins.
+4. The wallet starts on **VRSCTEST**, the test network, where the coins are not
+   worth anything. That is the right place to learn it. Mainnet is
+   cyan instead of green and wears a bar across the top, so you always know
+   which one you are on — including on the window that signs.
 
 To be paid, press **Receive** and copy your address. To pay someone, press
 **Send**.
@@ -84,6 +94,8 @@ To be paid, press **Receive** and copy your address. To pay someone, press
 - **No audit.** Nobody has reviewed this code for security.
 - **No hardware wallet support**, and no air-gapped signing.
 - **No spending limits and no trusted sites.** Every request opens a window.
+- **Staying unlocked is optional.** Tick it and the wallet will not ask for your
+  passphrase again for five minutes. Leave it alone and it asks every time.
 - **Mainnet is selectable.** Nothing stops you pointing it at real VRSC. On
   current evidence, you should not.
 

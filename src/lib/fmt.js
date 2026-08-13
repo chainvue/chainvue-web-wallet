@@ -34,6 +34,22 @@ export function coinsShort(value) {
     : Number(whole).toLocaleString('en-US');
 }
 
+/**
+ * A value, in the unit everything is quoted against.
+ *
+ * Two decimal places, because that is how people read a price and because more
+ * of them would imply a precision a mid price does not have. Below a cent it
+ * gains places rather than rounding to `0.00`, which would say a holding is
+ * worth nothing when it is worth a little.
+ */
+export function value(amount) {
+  const n = Number(amount);
+  if (!Number.isFinite(n) || n < 0) return null;
+  if (n === 0) return '0.00';
+  if (n < 0.01) return n.toFixed(4);
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 export function elide(text, head = 8, tail = 6) {
   const s = String(text ?? '');
   return s.length <= head + tail + 1 ? s : `${s.slice(0, head)}…${s.slice(-tail)}`;

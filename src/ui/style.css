@@ -21,6 +21,75 @@
      should do, and they cannot. The system face costs no download and paints
      on the first frame, which matters in a popup. */
   --ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* The hairline between sections. A token because the chain changes it. */
+  --hair: #0e2a0e;
+  /* Which chain you are on, as a colour. */
+  --chain-ink: var(--accent);
+
+  /* The washes and fills that used to be baked in as #042004xx. They are the
+     accent at low alpha, so they have to move with it — leaving them literal is
+     what made a chain switch recolour the frames and nothing else. */
+  --tint: #04200420;
+  --tint-strong: #04200430;
+  --hair-dot: #00350033;
+  --dot-token: #1f7a33;
+  --avatar-from: #0b3d14;
+  --skel-a: #0a1c0a;
+  --skel-b: #102a10;
+  --skel-flat: #0d220d;
+
+  /* Provenance is the one thing that must NOT follow the chain.
+     Green means "you started this" and amber means "a website asked for this",
+     and that pair has to be learnable across both chains — if it tracked the
+     accent, a local send would be phosphor green on testnet and cyan on
+     mainnet, and the distinction people are supposed to internalise would be
+     the thing that keeps changing. */
+  --prov-local: #5fff87;
+  --prov-site: #ffaf00;
+}
+
+/*
+ * Mainnet, in cyan.
+ *
+ * The first attempt warmed the surround and left the accent green, which read as
+ * an unfinished theme rather than as a different chain: fifteen greens were
+ * baked into rules rather than tokenised, so the frames changed and the wallet
+ * did not.
+ *
+ * Amber was the obvious candidate and is the wrong one. `--warn` is amber and
+ * carries "a website asked for this" and "read this before you continue" — an
+ * amber interface would leave every warning in the wallet the same colour as the
+ * chrome around it. Red is taken by destruction. Cyan is the only free hue with
+ * this much separation from green at a glance, it costs no existing meaning, and
+ * an amber-or-cyan tube next to a green one is what these terminals actually
+ * looked like.
+ *
+ * Every token moves together, so nothing is left behind: ground, frames,
+ * hairlines, washes, the skeleton shimmer, the avatar, the token dots. What does
+ * not move is the semantic set — `--warn`, `--danger`, and the two provenance
+ * colours above.
+ *
+ * Contrast measured against the new ground rather than assumed:
+ * `--value` 18.2:1, `--accent` 14.1:1, `--muted` 5.74:1.
+ */
+:root[data-chain="real"] {
+  --frame: #007a87;
+  --title: #00e5ff;
+  --value: #d7f7ff;
+  --accent: #5fe8ff;
+  --muted: #7d8a8e;
+  --bg: #000508;
+  --bg-panel: #010b0d;
+  --hair: #0e252a;
+  --hair-dot: #00303533;
+  --tint: #04181f20;
+  --tint-strong: #04181f30;
+  --dot-token: #1f6a7a;
+  --avatar-from: #0b333d;
+  --skel-a: #0a181c;
+  --skel-b: #10262a;
+  --skel-flat: #0d1f22;
+  --chain-ink: #00e5ff;
 }
 
 * { box-sizing: border-box; }
@@ -94,7 +163,7 @@ h1 {
 .foldout > summary:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
 
 .row { display: flex; justify-content: space-between; gap: 0.8rem; padding: 0.2rem 0; }
-.row + .row { border-top: 1px dotted #00350033; }
+.row + .row { border-top: 1px dotted var(--hair-dot); }
 .row-label { color: var(--label); flex: 0 0 auto; }
 .row-value { text-align: right; word-break: break-all; }
 
@@ -141,7 +210,7 @@ button {
   cursor: pointer;
 }
 button.secondary { border-color: var(--muted); color: var(--label); }
-button:hover:not(:disabled) { background: #04200420; }
+button:hover:not(:disabled) { background: var(--tint); }
 button:disabled { border-color: var(--muted); color: var(--muted); cursor: progress; }
 
 /* An error here names an address — 34 unbreakable characters, which without
@@ -161,7 +230,7 @@ button:disabled { border-color: var(--muted); color: var(--muted); cursor: progr
 .keyrow .accent { overflow-wrap: anywhere; }
 .keyrow .addr { color: var(--muted); font-size: 11px; word-break: break-all; }
 
-.holdings { margin-top: 0.4rem; border-top: 1px dotted #00350033; padding-top: 0.3rem; }
+.holdings { margin-top: 0.4rem; border-top: 1px dotted var(--hair-dot); padding-top: 0.3rem; }
 .holding { display: flex; justify-content: space-between; gap: 0.6rem; padding: 0.1rem 0; }
 
 /*
@@ -180,7 +249,7 @@ button:disabled { border-color: var(--muted); color: var(--muted); cursor: progr
 
 hr { border: none; border-top: 1px solid var(--frame); margin: 0.8rem 0; }
 
-.holdings-head { margin-top: 0.35rem; padding-top: 0.25rem; border-top: 1px dotted #00350033; }
+.holdings-head { margin-top: 0.35rem; padding-top: 0.25rem; border-top: 1px dotted var(--hair-dot); }
 
 /* ==========================================================================
    Hierarchy.
@@ -213,7 +282,7 @@ hr { border: none; border-top: 1px solid var(--frame); margin: 0.8rem 0; }
 .bar {
   display: flex; align-items: center; justify-content: space-between;
   gap: 0.5rem; padding-bottom: 0.7rem; margin-bottom: 0.2rem;
-  border-bottom: 1px solid #0e2a0e;
+  border-bottom: 1px solid var(--hair);
 }
 .bar-mark { font: 700 11px/1 var(--mono); letter-spacing: 0.16em; color: var(--title); }
 .chip {
@@ -222,7 +291,7 @@ hr { border: none; border-top: 1px solid var(--frame); margin: 0.8rem 0; }
   padding: 0.25rem 0.5rem; border-radius: 999px; background: transparent;
   cursor: pointer;
 }
-.chip:hover { background: #04200420; }
+.chip:hover { background: var(--tint); }
 
 /* --- account row --------------------------------------------------------- */
 .acct { display: flex; align-items: center; gap: 0.55rem; padding: 0.75rem 0 0; }
@@ -231,7 +300,7 @@ hr { border: none; border-top: 1px solid var(--frame); margin: 0.8rem 0; }
 .acct-addr { font-size: 11px; margin-top: 1px; }
 .avatar {
   width: 26px; height: 26px; border-radius: 6px; flex: 0 0 auto;
-  background: linear-gradient(135deg, #0b3d14, var(--accent));
+  background: linear-gradient(135deg, var(--avatar-from), var(--accent));
 }
 
 /* --- the balance headline ------------------------------------------------ */
@@ -251,53 +320,158 @@ hr { border: none; border-top: 1px solid var(--frame); margin: 0.8rem 0; }
   flex: 1; border-radius: 6px; padding: 0.6rem 0;
   font: 600 13px/1 var(--ui); letter-spacing: 0;
 }
-.actions button.fill { background: #04200430; }
+.actions button.fill { background: var(--tint-strong); }
 
 /* --- sections ------------------------------------------------------------ */
 .sec-head {
   display: flex; align-items: center; justify-content: space-between;
   font: 600 10px/1 var(--ui); letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--muted); padding: 0.9rem 0 0.45rem;
-  border-top: 1px solid #0e2a0e; margin-top: 0.7rem;
+  border-top: 1px solid var(--hair); margin-top: 0.7rem;
 }
 
 .hold-row { display: flex; align-items: center; gap: 0.55rem; padding: 0.3rem 0; min-width: 0; }
 .hold-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: 0 0 auto; }
-.hold-dot.token { background: #1f7a33; }
+.hold-dot.token { background: var(--dot-token); }
+/* A dot standing in for a dot. `.skel` sets width:100% and is declared later,
+   so the geometry has to be restated at a specificity that beats it. */
+.hold-dot.skel { width: 7px; height: 7px; border-radius: 50%; }
 .hold-name { font-family: var(--ui); overflow-wrap: anywhere; min-width: 0; }
-.hold-amount { margin-left: auto; flex: 0 0 auto; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+/* The amount and what it is worth, stacked and right-aligned so both columns of
+   digits line up down the list. */
+.hold-amount {
+  margin-left: auto; flex: 0 0 auto;
+  display: flex; flex-direction: column; align-items: flex-end;
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+}
+.hold-num { line-height: 1.35; }
+.hold-worth { font-size: 10.5px; color: var(--muted); line-height: 1.2; }
+
+/* What a balance is worth, in the unit the chain prices it against. Quiet: it
+   is context for the figure above it, not a second headline. */
+.worth { color: var(--muted); }
+.worth-unit { font-size: 10px; letter-spacing: 0.06em; }
 .tag {
   font: 600 9px/1 var(--ui); letter-spacing: 0.06em;
   border: 1px solid var(--frame); color: var(--muted);
   padding: 0.15rem 0.3rem; border-radius: 999px; flex: 0 0 auto;
 }
 
-/* --- activity ------------------------------------------------------------ */
-.act-row { display: flex; align-items: baseline; gap: 0.5rem; padding: 0.28rem 0; font-size: 12.5px; min-width: 0; }
-.act-arrow { font-family: var(--mono); flex: 0 0 auto; }
-.act-arrow.in { color: var(--accent); }
-.act-arrow.out { color: var(--label); }
-.act-what { font-family: var(--ui); min-width: 0; overflow-wrap: anywhere; }
+/* --- waiting -------------------------------------------------------------
+   A block the size of the thing that is coming. The popup is sized to its
+   content by Chrome, so a container that grows late moves the buttons under it
+   — see the note on `skeletonRows`. */
+.skel {
+  display: block; width: 100%; border-radius: 3px;
+  background: linear-gradient(90deg, var(--skel-a) 25%, var(--skel-b) 50%, var(--skel-a) 75%);
+  background-size: 300% 100%;
+  animation: skel 1.4s ease-in-out infinite;
+}
+@keyframes skel { from { background-position: 150% 0; } to { background-position: -150% 0; } }
+/* A pulse behind a balance is not worth making anybody ill. The block still
+   reserves the space, which is the part that matters. */
+@media (prefers-reduced-motion: reduce) {
+  .skel { animation: none; background: var(--skel-flat); }
+}
+
+/* --- activity -------------------------------------------------------------
+   Two lines per row: how much and when, then who and whether it has settled.
+   The row is an anchor to the transaction, so it takes the link resets. */
+.act-row {
+  display: flex; align-items: flex-start; gap: 0.55rem;
+  padding: 0.32rem 0; min-width: 0;
+  color: inherit; text-decoration: none;
+  border-top: 1px solid var(--hair);
+}
+.act-row:first-child { border-top: 0; }
+.act-row:hover { background: var(--tint); }
+.act-row:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.act-arrow { font-family: var(--mono); flex: 0 0 auto; line-height: 1.4; color: var(--label); }
+.act-row.in .act-arrow { color: var(--accent); }
+.act-body { flex: 1; min-width: 0; }
+.act-line { display: flex; align-items: baseline; gap: 0.4rem; min-width: 0; }
+.act-amount {
+  font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 13px;
+  min-width: 0; overflow-wrap: anywhere;
+}
+.act-row.in .act-amount { color: var(--accent); }
+.act-unit { color: var(--muted); font-size: 11px; margin-left: 0.3rem; }
 .act-when { margin-left: auto; color: var(--muted); font-size: 11px; flex: 0 0 auto; font-family: var(--ui); }
+.act-sub {
+  font: 11px/1.5 var(--ui); color: var(--muted);
+  min-width: 0; overflow-wrap: anywhere;
+}
+.act-who .addr-chunks { font-size: 11px; }
+/* Whether it has settled, in a shape that reads before the text does. */
+.pill {
+  margin-left: auto; flex: 0 0 auto;
+  font: 600 9px/1 var(--ui); letter-spacing: 0.06em; text-transform: uppercase;
+  border: 1px solid var(--frame); color: var(--muted);
+  padding: 0.2rem 0.35rem; border-radius: 999px;
+}
+.pill.pending { border-color: var(--warn); color: var(--warn); }
+
+/* The holdings tail, which is a control and now looks like one. */
+.more {
+  flex: 0 0 auto; margin-top: 0.35rem; padding: 0.2rem 0;
+  background: none; border: 0; color: var(--muted);
+  font: 11px/1.4 var(--ui); text-align: left; cursor: pointer;
+}
+.more:hover { color: var(--accent); }
 
 /* --- receive ------------------------------------------------------------- */
+/* Dark modules on a light ground, because that is the polarity scanners look
+   for — an inverted code is refused by a good many of them. The white card is
+   deliberate rather than an oversight in a black interface. */
+.qr {
+  /* Sized to the code rather than to the column: a white panel the width of the
+     popup reads as a hole in the interface, one the width of the QR reads as the
+     card it is. */
+  width: fit-content; margin: 0.9rem auto 0; padding: 0.55rem;
+  background: #ffffff; border-radius: 8px;
+}
+.qr canvas { display: block; image-rendering: pixelated; }
+
 .receive-addr {
   border: 1px solid var(--frame); background: var(--bg-panel);
   padding: 0.75rem; border-radius: 6px; font-size: 14px; line-height: 1.7;
   text-align: center;
 }
 
+/* --- recent recipients ---------------------------------------------------- */
+.recents:empty { display: none; }
+.recents-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font: 600 9px/1 var(--ui); letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--muted); margin-top: 0.6rem;
+}
+.recents-row { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.35rem; }
+.recent-chip {
+  flex: 0 0 auto; max-width: 100%;
+  border: 1px solid var(--frame); border-radius: 999px; background: transparent;
+  color: var(--label); font: 11px/1.2 var(--mono);
+  padding: 0.25rem 0.5rem; cursor: pointer;
+}
+.recent-chip:hover { color: var(--accent); border-color: var(--accent); }
+.recent-chip .addr-chunks { color: inherit; }
+.link-btn {
+  flex: 0 0 auto; background: none; border: 0; padding: 0;
+  color: var(--muted); font: 600 9px/1 var(--ui); letter-spacing: 0.14em;
+  text-transform: uppercase; cursor: pointer;
+}
+.link-btn:hover { color: var(--danger); }
+
 /* --- approval: the decision, made to look like one ----------------------- */
 .prov {
   display: flex; align-items: center; gap: 0.5rem;
   padding: 0.55rem 0.7rem; margin-bottom: 0.8rem;
   font: 11.5px/1.45 var(--ui);
-  border-left: 2px solid var(--warn); color: var(--warn);
+  border-left: 2px solid var(--prov-site); color: var(--prov-site);
   /* `anywhere` and not `break-all`: this is prose, and break-all hyphenates it
      mid-word ("no website as / ked for it"). */
   overflow-wrap: anywhere;
 }
-.prov.local { border-left-color: var(--accent); color: var(--accent); background: #04200420; }
+.prov.local { border-left-color: var(--prov-local); color: var(--prov-local); background: var(--tint); }
 
 .lede { padding: 0.2rem 0 0.1rem; }
 .lede-kicker {
@@ -312,7 +486,7 @@ hr { border: none; border-top: 1px solid var(--frame); margin: 0.8rem 0; }
 
 .dest {
   border: 1px solid var(--frame); border-radius: 6px;
-  padding: 0.6rem 0.7rem; margin-top: 0.8rem; background: #04200418;
+  padding: 0.6rem 0.7rem; margin-top: 0.8rem; background: var(--tint);
 }
 .dest-kicker {
   font: 600 10px/1 var(--ui); letter-spacing: 0.14em; text-transform: uppercase;
@@ -323,7 +497,7 @@ hr { border: none; border-top: 1px solid var(--frame); margin: 0.8rem 0; }
 .facts { margin-top: 0.8rem; }
 .fact {
   display: flex; justify-content: space-between; gap: 0.8rem;
-  padding: 0.35rem 0; font-size: 12.5px; border-bottom: 1px solid #0e2a0e;
+  padding: 0.35rem 0; font-size: 12.5px; border-bottom: 1px solid var(--hair);
 }
 .fact:last-child { border-bottom: 0; }
 .fact-k { color: var(--muted); font-family: var(--ui); flex: 0 0 auto; }
@@ -334,7 +508,7 @@ hr { border: none; border-top: 1px solid var(--frame); margin: 0.8rem 0; }
   border-left: 2px solid var(--warn); background: #2a1c0020;
   font: 11.5px/1.5 var(--ui); color: var(--warn);
 }
-.note.good { border-left-color: var(--accent); background: #04200420; color: var(--accent); }
+.note.good { border-left-color: var(--accent); background: var(--tint); color: var(--accent); }
 
 /* Stage two has to be visibly a different thing from stage one — that a built
    transaction is a fact and a request is a claim is the wallet's whole idea,
@@ -388,3 +562,139 @@ select.chip { width: auto; max-width: 11rem; padding-right: 1.2rem; }
    where character alignment is the point — a button label is not a value. */
 button { font-family: var(--ui); font-weight: 600; letter-spacing: 0; }
 .buttons button { border-radius: 6px; }
+
+/* ==========================================================================
+   Owning a wallet — the parts that are not an interface problem.
+   ========================================================================== */
+
+/* --- which chain, said in words ------------------------------------------ */
+/* Full-bleed out of the body's padding, because a warning that shares the
+   content's margins reads as content. Rendered only on a real-money chain. */
+.chain-rail {
+  /* Pulled out of the body's padding on all three sides so it is flush with the
+     top of the window. In the approval document it is prepended to `body`
+     rather than to `#root`, which has an `<h1>` above it. */
+  margin: -0.9rem -0.9rem 0.9rem;
+  padding: 0.32rem 0.9rem;
+  background: var(--chain-ink);
+  color: var(--bg);
+  font: 650 9.5px/1.4 var(--ui);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  text-align: center;
+}
+/* The network chip carries the same colour, so the control that changes chains
+   is the control that looks like the chain. */
+:root[data-chain="real"] select.chip { color: var(--chain-ink); border-color: var(--chain-ink); }
+
+/* --- the account switcher ------------------------------------------------ */
+/* The row is unchanged. What is added is that the name is now a button. */
+.acct-pick {
+  display: flex; align-items: baseline; gap: 0.3rem;
+  background: none; border: 0; padding: 0; margin: 0;
+  color: var(--value); font: 600 13px/1.3 var(--ui); text-align: left;
+  cursor: pointer; min-width: 0; overflow-wrap: anywhere; flex: 0 1 auto;
+}
+.acct-pick:hover { color: var(--accent); }
+.acct-pick .caret { color: var(--muted); font-size: 10px; flex: 0 0 auto; }
+.acct-pick[aria-expanded='true'] .caret { color: var(--accent); }
+
+.sheet {
+  border: 1px solid var(--frame); background: var(--bg-panel);
+  border-radius: 6px; margin-top: 0.5rem; overflow: hidden;
+}
+.sheet-row {
+  display: flex; align-items: center; gap: 0.55rem; width: 100%;
+  padding: 0.5rem 0.6rem; border: 0; border-top: 1px solid var(--hair);
+  background: transparent; color: var(--value); font: inherit;
+  text-align: left; cursor: pointer;
+}
+.sheet-row:first-child { border-top: 0; }
+.sheet-row:hover { background: var(--tint); }
+.sheet-row[aria-current='true'] { background: var(--tint); }
+.sheet-tick { color: var(--accent); flex: 0 0 auto; width: 0.8em; }
+.sheet-id { flex: 1; min-width: 0; }
+/* `display:block` and not merely a font: both this and the address beside it
+   are spans, so without it they render as one run — "savingsRXdSvj ··· bzKU". */
+.sheet-name { display: block; font: 600 12px/1.3 var(--ui); }
+.sheet-amount {
+  flex: 0 0 auto; text-align: right;
+  font: 12px/1.3 var(--mono); font-variant-numeric: tabular-nums;
+}
+.sheet-amount small { display: block; font-size: 10px; color: var(--muted); }
+.sheet-add { color: var(--muted); font: 600 11px/1.4 var(--ui); }
+.sheet-add:hover { color: var(--accent); }
+
+/* --- backing a key up ---------------------------------------------------- */
+.reveal {
+  border: 1px solid var(--danger); border-radius: 6px;
+  background: #2a000018; padding: 0.6rem 0.7rem; margin-top: 0.5rem;
+}
+.reveal-title {
+  font: 600 10px/1 var(--ui); letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--danger); margin-bottom: 0.45rem;
+}
+.secret {
+  border: 1px solid var(--frame); background: var(--bg);
+  padding: 0.6rem; border-radius: 4px; margin: 0.5rem 0;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.7;
+  overflow-wrap: anywhere; text-align: center; color: var(--value);
+  user-select: all;
+}
+
+/* --- first run ----------------------------------------------------------- */
+.welcome { padding: 1.1rem 0 0.2rem; }
+.welcome h2 {
+  margin: 0; font: 600 17px/1.25 var(--ui); color: var(--value);
+  letter-spacing: -0.01em;
+}
+.welcome p { margin: 0.35rem 0 0; font: 12.5px/1.5 var(--ui); color: var(--muted); }
+/* The first field must not crowd the paragraph that explains it. */
+.welcome + .field, .welcome + div > .field:first-child { margin-top: 0.9rem; }
+.welcome .chain-word { color: var(--chain-ink); }
+.alt {
+  font: 11.5px/1.45 var(--ui); color: var(--muted);
+  margin-top: 0.8rem; text-align: center;
+}
+.alt button {
+  flex: 0 0 auto; background: none; border: 0; padding: 0;
+  color: var(--accent); font: inherit; text-decoration: underline; cursor: pointer;
+}
+
+/* --- staying unlocked ---------------------------------------------------- */
+.unlocked {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  border: 1px solid var(--frame); border-radius: 4px;
+  padding: 0.45rem 0.55rem;
+  font: 11.5px/1.4 var(--ui); color: var(--muted);
+}
+.keep {
+  display: flex; align-items: center; gap: 0.4rem;
+  font: 11.5px/1.4 var(--ui); color: var(--muted); margin-top: 0.45rem;
+  cursor: pointer;
+}
+.keep input {
+  width: auto; margin: 0; flex: 0 0 auto; accent-color: var(--accent);
+}
+
+/* --- filtering a long holdings list -------------------------------------- */
+.filter {
+  width: 100%; margin: 0 0 0.35rem;
+  font: 11.5px/1.4 var(--ui); padding: 0.3rem 0.45rem;
+}
+
+/* The verbs available for one key. Wrapped, because three short controls at
+   360px is exactly the width where they stop fitting on a long label. */
+.keyrow-acts { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.45rem; }
+.mini {
+  flex: 0 0 auto;
+  border: 1px solid var(--frame); color: var(--accent); background: transparent;
+  border-radius: 4px; padding: 0.25rem 0.5rem;
+  font: 600 10px/1.2 var(--ui); letter-spacing: 0.06em; cursor: pointer;
+}
+.mini:hover:not(:disabled) { background: var(--tint); }
+.mini.danger-zone { border-color: #5a1f1f; color: var(--danger); }
+
+/* What the amount is worth, inside the field it belongs to. Right-aligned into
+   the suffix beside MAX so it cannot collide with the number being typed. */
+.amount-worth { font: 11.5px/1 var(--ui); color: var(--muted); white-space: nowrap; }

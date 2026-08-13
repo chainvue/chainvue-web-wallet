@@ -33,17 +33,34 @@ function fromBase64(text) {
   return Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 }
 
-async function deriveKey(passphrase, salt) {
+/**
+ * Stretch a passphrase into the 256 bits that seal one envelope.
+ *
+ * Bits rather than a `CryptoKey`, because these are the thing a session unlock
+ * has to be able to keep: an extension message channel is JSON, so a
+ * non-extractable key object cannot cross one, while raw bits can be held in
+ * `chrome.storage.session` and imported again on the other side. See
+ * `lib/session.js` for why these and not the passphrase or the WIF.
+ */
+async function deriveBits(passphrase, salt) {
   const material = await crypto.subtle.importKey('raw', encoder.encode(passphrase), 'PBKDF2', false, [
-    'deriveKey',
+    'deriveBits',
   ]);
-  return crypto.subtle.deriveKey(
+  const bits = await crypto.subtle.deriveBits(
     { name: 'PBKDF2', salt, iterations: ITERATIONS, hash: 'SHA-256' },
     material,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    ['encrypt', 'decrypt'],
+    256,
   );
+  return new Uint8Array(bits);
+}
+
+/** Non-extractable on the way back in, so nothing can read the bits off it. */
+function keyFromBits(bits, usages) {
+  return crypto.subtle.importKey('raw', bits, { name: 'AES-GCM', length: 256 }, false, usages);
+}
+
+async function deriveKey(passphrase, salt, usages) {
+  return keyFromBits(await deriveBits(passphrase, salt), usages);
 }
 
 /**
@@ -56,7 +73,7 @@ async function deriveKey(passphrase, salt) {
 export async function seal(label, address, wif, passphrase) {
   const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
   const nonce = crypto.getRandomValues(new Uint8Array(NONCE_BYTES));
-  const key = await deriveKey(passphrase, salt);
+  const key = await deriveKey(passphrase, salt, ['encrypt']);
   const sealed = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce }, key, encoder.encode(wif));
 
   return {
@@ -77,7 +94,19 @@ export async function seal(label, address, wif, passphrase) {
  * would tell an attacker which passphrases are close.
  */
 export async function open(envelope, passphrase) {
-  const key = await deriveKey(passphrase, fromBase64(envelope.kdf.salt));
+  return openWith(envelope, await deriveBits(passphrase, fromBase64(envelope.kdf.salt)));
+}
+
+/**
+ * The same decryption, from bits that have already been stretched.
+ *
+ * This is the whole of what a session unlock buys: PBKDF2 at 600,000 iterations
+ * is the third of a second, and skipping it is skipping the typing rather than
+ * skipping any check — a wrong unlock still fails AES-GCM's authentication here,
+ * exactly as a wrong passphrase does.
+ */
+export async function openWith(envelope, bits) {
+  const key = await keyFromBits(bits, ['decrypt']);
   let plain;
   try {
     plain = await crypto.subtle.decrypt(
@@ -90,6 +119,21 @@ export async function open(envelope, passphrase) {
   }
   return decoder.decode(plain);
 }
+
+/**
+ * Bits that open this envelope, proven against it before they are handed back.
+ *
+ * Verifying here rather than trusting the caller means a session unlock can
+ * never be stored for a passphrase that was wrong — the failure arrives while
+ * the field that produced it is still on screen.
+ */
+export async function unlockBits(envelope, passphrase) {
+  const bits = await deriveBits(passphrase, fromBase64(envelope.kdf.salt));
+  await openWith(envelope, bits); // throws 'wrong passphrase'
+  return bits;
+}
+
+export { toBase64 as bitsToText, fromBase64 as bitsFromText };
 
 // --- storage ---------------------------------------------------------------
 

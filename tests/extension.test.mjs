@@ -10,6 +10,9 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+// The QR is verified by decoding it, which needs a decoder that shares no code
+// with the encoder. Dev-only: nothing in `src/` imports it and it never ships.
+import jsQR from 'jsqr';
 
 const EXTENSION = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SITE = process.env.SITE_URL ?? 'http://127.0.0.1:8731';
@@ -41,6 +44,21 @@ async function withExtension(run) {
   }
 }
 
+/**
+ * Make a key through the real first-run screen.
+ *
+ * Everything below needs a wallet with a key in it, and every one of them used
+ * to inline the same three lines against placeholders. Asking by label instead
+ * means the setup screen can be rewritten — as it just was — without touching a
+ * dozen tests, and it exercises the label associations while it is there.
+ */
+async function createKey(page, label, passphrase) {
+  await page.getByLabel('Name it').fill(label);
+  await page.getByLabel('Passphrase').fill(passphrase);
+  await page.getByRole('button', { name: 'Create wallet' }).click();
+  await expect(page.getByText(label).first()).toBeVisible({ timeout: 15_000 });
+}
+
 test('the service worker starts and the wasm module loads in the popup', async () => {
   await withExtension(async ({ context, extensionId, worker }) => {
     const page = await context.newPage();
@@ -51,7 +69,7 @@ test('the service worker starts and the wasm module loads in the popup', async (
     await page.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
     // "no keys yet" only renders after init() resolved, so seeing it proves
     // the 918 KB wasm module instantiated under the extension CSP.
-    await expect(page.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
     expect(errors, errors.join(' | ')).toEqual([]);
   });
 });
@@ -60,11 +78,9 @@ test('creating a key derives a real R-address and stores it encrypted', async ()
   await withExtension(async ({ context, extensionId, worker }) => {
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-    await expect(page.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
 
-    await page.locator('input[placeholder="label"]').first().fill('test-key');
-    await page.locator('input[placeholder="passphrase"]').first().fill('correct horse battery');
-    await page.getByRole('button', { name: 'create key' }).click();
+    await createKey(page, 'test-key', 'correct horse battery');
 
     await expect(page.getByText('test-key')).toBeVisible({ timeout: 15_000 });
 
@@ -98,7 +114,7 @@ test('a sealed envelope does not contain the WIF in clear', async () => {
   await withExtension(async ({ context, extensionId, worker }) => {
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-    await expect(page.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
 
     // Derive a real key, seal it, and look for its actual WIF in the blob that
     // would hit disk. Checking for a stray character class instead would pass
@@ -138,7 +154,7 @@ test('balances cover every currency, and coins are not read as satoshis', async 
   await withExtension(async ({ context, extensionId, worker }) => {
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-    await expect(page.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
 
     const result = await page.evaluate(async (address) => {
       const { rpc, currencyBalances, currentNetwork } = await import('../lib/rpc.js');
@@ -172,7 +188,7 @@ test('identity-held balances are found, not just the address', async () => {
   await withExtension(async ({ context, extensionId, worker }) => {
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-    await expect(page.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
 
     const out = await page.evaluate(async (address) => {
       const { controlledIdentities, currencyBalances, currentNetwork } = await import('../lib/rpc.js');
@@ -204,7 +220,7 @@ test('coinsShort formats coins, never satoshis', async () => {
   await withExtension(async ({ context, extensionId, worker }) => {
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-    await expect(page.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
 
     const out = await page.evaluate(async () => {
       const { coinsShort, coins } = await import('../lib/fmt.js');
@@ -227,7 +243,7 @@ test('a token definition is fixed-supply and cannot be minted', async () => {
   await withExtension(async ({ context, extensionId, worker }) => {
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-    await expect(page.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
 
     const out = await page.evaluate(async () => {
       const { launchDefinition } = await import('./approve.js');
@@ -269,7 +285,7 @@ test('the identity gets its @ while the definition name does not', async () => {
   await withExtension(async ({ context, extensionId, worker }) => {
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-    await expect(page.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
 
     const out = await page.evaluate(async () => {
       const { asIdentityRef, launchDefinition } = await import('./approve.js');
@@ -305,7 +321,7 @@ test('basket weights sum to exactly one, including when they do not divide', asy
   await withExtension(async ({ context, extensionId, worker }) => {
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-    await expect(page.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
 
     const out = await page.evaluate(async () => {
       const { launchDefinition } = await import('./approve.js');
@@ -358,7 +374,7 @@ test('a pending registration is stored before anything could be broadcast', asyn
   await withExtension(async ({ context, extensionId, worker }) => {
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-    await expect(page.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
 
     const out = await page.evaluate(async () => {
       const pending = await import('../lib/pending.js');
@@ -389,11 +405,8 @@ test('a page can read back a pending commitment, txid and all', async () => {
   await withExtension(async ({ context, extensionId, worker }) => {
     const setup = await context.newPage();
     await setup.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-    await expect(setup.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
-    await setup.locator('input[placeholder="label"]').first().fill('reader');
-    await setup.locator('input[placeholder="passphrase"]').first().fill('correct horse battery');
-    await setup.getByRole('button', { name: 'create key' }).click();
-    await expect(setup.getByText('reader')).toBeVisible({ timeout: 15_000 });
+    await expect(setup.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
+    await createKey(setup, 'reader', 'correct horse battery');
 
     // Exactly what phase one writes before it broadcasts.
     await setup.evaluate(async () => {
@@ -439,11 +452,8 @@ test('reading registration state opens no approval window', async () => {
   await withExtension(async ({ context, extensionId, worker }) => {
     const setup = await context.newPage();
     await setup.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-    await expect(setup.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
-    await setup.locator('input[placeholder="label"]').first().fill('reader');
-    await setup.locator('input[placeholder="passphrase"]').first().fill('correct horse battery');
-    await setup.getByRole('button', { name: 'create key' }).click();
-    await expect(setup.getByText('reader')).toBeVisible({ timeout: 15_000 });
+    await expect(setup.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
+    await createKey(setup, 'reader', 'correct horse battery');
 
     const page = await context.newPage();
     const response = await page.goto(SITE).catch(() => null);
@@ -467,7 +477,7 @@ test('a resumed commitment is handed back as the wrapper, not the inner blob', a
   await withExtension(async ({ context, extensionId, worker }) => {
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-    await expect(page.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
 
     const out = await page.evaluate(async () => {
       const { asPending } = await import('./approve.js');
@@ -526,7 +536,7 @@ test('an absent tokenFunding is omitted, never passed as undefined', async () =>
   await withExtension(async ({ context, extensionId, worker }) => {
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-    await expect(page.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
 
     const out = await page.evaluate(async () => {
       const wasm = await import('../vendor/verus-wasm/verus_wasm.js');
@@ -576,7 +586,7 @@ test('a stuck claim is visible in the popup and can be discarded', async () => {
   await withExtension(async ({ context, extensionId, worker }) => {
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-    await expect(page.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
 
     await page.evaluate(async () => {
       const pending = await import('../lib/pending.js');
@@ -615,7 +625,7 @@ test('a wrong passphrase cannot open the envelope', async () => {
   await withExtension(async ({ context, extensionId, worker }) => {
     const page = await context.newPage();
     await page.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-    await expect(page.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
 
     const result = await page.evaluate(async () => {
       const vault = await import('../lib/vault.js');
@@ -691,11 +701,8 @@ test('the launchpad wizard reaches the wallet instead of reporting none', async 
   await withExtension(async ({ context, extensionId, worker }) => {
     const setup = await context.newPage();
     await setup.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-    await expect(setup.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
-    await setup.locator('input[placeholder="label"]').first().fill('wizard');
-    await setup.locator('input[placeholder="passphrase"]').first().fill('correct horse battery');
-    await setup.getByRole('button', { name: 'create key' }).click();
-    await expect(setup.getByText('wizard')).toBeVisible({ timeout: 15_000 });
+    await expect(setup.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
+    await createKey(setup, 'wizard', 'correct horse battery');
 
     const page = await context.newPage();
     const response = await page.goto(`${SITE}/launch.html`).catch(() => null);
@@ -732,13 +739,10 @@ test('the approval window opens as a small popup, not fullscreen', async () => {
   await withExtension(async ({ context, extensionId, worker }) => {
     const setup = await context.newPage();
     await setup.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-    await expect(setup.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+    await expect(setup.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
 
     // A key must exist or the request is refused before any window opens.
-    await setup.locator('input[placeholder="label"]').first().fill('approver');
-    await setup.locator('input[placeholder="passphrase"]').first().fill('correct horse battery');
-    await setup.getByRole('button', { name: 'create key' }).click();
-    await expect(setup.getByText('approver')).toBeVisible({ timeout: 15_000 });
+    await createKey(setup, 'approver', 'correct horse battery');
 
     const page = await context.newPage();
     const response = await page.goto(SITE).catch(() => null);
@@ -832,20 +836,22 @@ test('the toolbar popup fits inside Chrome without scrolling', async () => {
     // element's height cannot be read past the bottom of a short one.
     await popup.setViewportSize({ width: 360, height: 3000 });
     await popup.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-    await expect(popup.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+    await expect(popup.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
 
     const height = () => popup.evaluate(() => Math.ceil(document.body.getBoundingClientRect().height));
 
-    // First run: setup has to be reachable without hunting for it, so the
-    // create form is open. It still has to fit.
+    // First run: setup has to be reachable without hunting for it, so the form
+    // is simply there — no longer folded away behind a disclosure at all. It
+    // still has to fit.
     const fresh = await height();
     expect(fresh, `first run renders ${fresh}px`).toBeLessThan(CHROME_POPUP_MAX);
-    await expect(popup.locator('details.foldout').first()).toHaveAttribute('open', '');
+    await expect(popup.getByLabel('Name it')).toBeVisible();
+    await expect(popup.getByLabel('Passphrase')).toBeVisible();
+    // And it says what the passphrase is, where the decision is made, rather
+    // than in a README nobody has open at this moment.
+    await expect(popup.getByText(/cannot be reset/i)).toBeVisible();
 
-    await popup.locator('input[placeholder="label"]').first().fill('probe');
-    await popup.locator('input[placeholder="passphrase"]').first().fill('correct horse battery');
-    await popup.getByRole('button', { name: 'create key' }).click();
-    await expect(popup.getByText('probe')).toBeVisible({ timeout: 15_000 });
+    await createKey(popup, 'probe', 'correct horse battery');
 
     // Once there is a key, the everyday view is the balance — setup folds away
     // and must not be occupying the window any more.
@@ -894,7 +900,7 @@ test('a loaded popup does not overflow its width', async () => {
     const popup = await context.newPage();
     await popup.setViewportSize({ width: 360, height: 900 });
     await popup.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-    await expect(popup.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+    await expect(popup.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
 
     const measured = await popup.evaluate(async () => {
       const { el, mount, panel } = await import('../lib/dom.js');
@@ -965,7 +971,7 @@ const REAL = {
 async function inPage(context, extensionId, fn, arg) {
   const page = await context.newPage();
   await page.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
-  await expect(page.getByText('no keys yet')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
   return page.evaluate(fn, arg);
 }
 
@@ -1189,5 +1195,464 @@ test('a malformed send is refused before it reaches the worker', async () => {
       expect(out[name].ok, `${name} was accepted`).toBe(false);
     }
     expect(out.nineDecimals.message).toMatch(/8 decimal/);
+  });
+});
+
+// --- the Receive QR --------------------------------------------------------
+//
+// A QR code that is subtly wrong does not look wrong. It scans, cleanly, to an
+// address nobody holds the key for — so "it renders" is not evidence of
+// anything, and neither is reading the encoder's source. The only proof that
+// counts is putting the drawn pixels through a decoder that shares no code with
+// the encoder and seeing the address come back out.
+
+test('the QR on Receive decodes back to the exact address', async () => {
+  await withExtension(async ({ context, extensionId }) => {
+    const popup = await context.newPage();
+    await popup.setViewportSize({ width: 360, height: 1200 });
+    await popup.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
+    await expect(popup.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
+
+    await createKey(popup, 'probe', 'correct horse battery');
+
+    await popup.getByRole('button', { name: /Receive/ }).click();
+    const canvas = popup.locator('.qr canvas');
+    await expect(canvas).toBeVisible();
+
+    // The address as the wallet stores it, read from the grouped element's
+    // `data-address` so the spaces the display adds cannot creep into the
+    // comparison.
+    const address = await popup.locator('.receive-addr [data-address]').getAttribute('data-address');
+    expect(address).toMatch(/^R[1-9A-HJ-NP-Za-km-z]{33}$/);
+
+    const shot = await popup.evaluate(() => {
+      const node = document.querySelector('.qr canvas');
+      const pixels = node.getContext('2d').getImageData(0, 0, node.width, node.height);
+      return { width: pixels.width, height: pixels.height, data: Array.from(pixels.data) };
+    });
+
+    const decoded = jsQR(new Uint8ClampedArray(shot.data), shot.width, shot.height);
+    expect(decoded, 'the rendered QR could not be decoded at all').not.toBeNull();
+    expect(decoded.data, 'the QR decodes to something other than the address').toBe(address);
+
+    // Not a formality: a matrix drawn transposed still decodes, to something
+    // else, and both of those would pass a "does it produce a QR" check.
+    expect(decoded.data).not.toBe('');
+  });
+});
+
+// --- activity --------------------------------------------------------------
+
+test('activity carries confirmations and who was on the other end', async () => {
+  // Against the live chain and a real address with history, because the whole
+  // point of these fields is that they come from a node — a fixture would only
+  // prove the shape of the fixture.
+  const HAS_HISTORY = 'RXdSvjZgRrNjtxVHEm13TH1pVTjt1obzKU';
+
+  await withExtension(async ({ context, extensionId }) => {
+    const out = await inPage(
+      context,
+      extensionId,
+      async (address) => {
+        const { NETWORKS, recentActivity, counterparty } = await import('../lib/rpc.js');
+        const net = NETWORKS.VRSCTEST;
+        const rows = await recentActivity(net.node, address, 3);
+        const other = rows.length ? await counterparty(net.node, rows[0].txid, address) : null;
+        return { rows, other, explorer: net.explorerTx };
+      },
+      HAS_HISTORY,
+    );
+
+    expect(out.rows.length, 'this address has history on testnet').toBeGreaterThan(0);
+
+    for (const row of out.rows) {
+      expect(row.txid).toMatch(/^[0-9a-f]{64}$/);
+      expect(['in', 'out']).toContain(row.direction);
+      expect(row.coins).toBeGreaterThan(0);
+      expect(typeof row.pending).toBe('boolean');
+      // Deep history, so every row is settled and must say so with a real count
+      // rather than the zero that means "not confirmed yet".
+      expect(row.confirmations, `${row.txid} reports ${row.confirmations} confirmations`).toBeGreaterThan(0);
+    }
+
+    // Never this address itself: the rule that excludes change is "not ours",
+    // so its own address appearing on either side would mean the filter is off.
+    const named = [...out.other.paid, ...out.other.paidBy];
+    expect(named, 'no counterparty was found for a transaction with inputs and outputs').not.toHaveLength(0);
+    expect(named).not.toContain(HAS_HISTORY);
+
+    expect(out.explorer).toContain('#/tx/');
+  });
+});
+
+// --- recent recipients -----------------------------------------------------
+
+test('a paid destination is remembered per chain, and can be cleared', async () => {
+  await withExtension(async ({ context, extensionId }) => {
+    const out = await inPage(context, extensionId, async () => {
+      const { list, remember, clear } = await import('../lib/recipients.js');
+
+      await remember('VRSCTEST', 'RXdSvjZgRrNjtxVHEm13TH1pVTjt1obzKU');
+      await remember('VRSCTEST', 'alice@');
+      await remember('VRSC', 'RCvP2M7HjvGLHMf47qopqxsNGBmM97Q4n3');
+      const afterThree = await list('VRSCTEST');
+
+      // Paying somebody again moves them to the front instead of listing them
+      // twice — it is a list of people, not a log of payments.
+      await remember('VRSCTEST', 'RXdSvjZgRrNjtxVHEm13TH1pVTjt1obzKU');
+      const afterRepeat = await list('VRSCTEST');
+
+      await clear('VRSCTEST');
+      return {
+        afterThree,
+        afterRepeat,
+        cleared: await list('VRSCTEST'),
+        otherChain: await list('VRSC'),
+        empty: await list('VRSCTEST'),
+      };
+    });
+
+    expect(out.afterThree).toEqual(['alice@', 'RXdSvjZgRrNjtxVHEm13TH1pVTjt1obzKU']);
+    expect(out.afterRepeat).toEqual(['RXdSvjZgRrNjtxVHEm13TH1pVTjt1obzKU', 'alice@']);
+    expect(out.cleared).toEqual([]);
+    // Clearing one chain must not take the other with it: they are separate
+    // lists because they are separate sets of people.
+    expect(out.otherChain).toEqual(['RCvP2M7HjvGLHMf47qopqxsNGBmM97Q4n3']);
+  });
+});
+
+// --- announced, not merely drawn -------------------------------------------
+
+test('everything the wallet reports is inside a live region', async () => {
+  // The failure this prevents is silent by construction: the interface looks
+  // finished, and somebody using a screen reader gets no confirmation that their
+  // money moved. Every line the wallet talks through is checked, not sampled.
+  await withExtension(async ({ context, extensionId }) => {
+    const popup = await context.newPage();
+    await popup.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
+    await expect(popup.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
+
+    const firstRun = await popup.locator('.status:not([role="status"])').count();
+    expect(firstRun, 'a status line on the first-run screen is not announced').toBe(0);
+
+    await createKey(popup, 'probe', 'correct horse battery');
+
+    // The balance is the answer to the question the wallet was opened to ask,
+    // and it arrives after the document does.
+    await expect(popup.locator('.balance')).toHaveAttribute('role', 'status');
+
+    await popup.getByRole('button', { name: /Send/ }).click();
+    expect(await popup.locator('.status:not([role="status"])').count()).toBe(0);
+    // The verdict on a destination has to reach the field it is about.
+    const describedBy = await popup.locator('input[placeholder*="address"]').getAttribute('aria-describedby');
+    expect(describedBy).toBe('to-help');
+    await expect(popup.locator('#to-help')).toHaveAttribute('aria-live', 'polite');
+  });
+});
+
+// --- what a balance is worth -----------------------------------------------
+
+test('the price comes from the basket and agrees with an actual quote', async () => {
+  // The whole risk in pricing from reserve state is getting the ratio the wrong
+  // way up. Inverted, 0.537 becomes 1.86 — still a plausible-looking number, on
+  // a screen where nobody has anything to check it against.
+  //
+  // So it is checked against the one thing that can contradict it:
+  // `estimateconversion`, which is a different code path in the daemon and
+  // answers what the conversion would actually pay. The two must agree to
+  // within the conversion fee; inverted they differ by more than threefold.
+  await withExtension(async ({ context, extensionId }) => {
+    const out = await inPage(context, extensionId, async () => {
+      const { NETWORKS, rpc } = await import('../lib/rpc.js');
+      const { priceBook, UNIT_LABEL } = await import('../lib/price.js');
+      const { value } = await import('../lib/fmt.js');
+      const net = NETWORKS.VRSCTEST;
+
+      const book = await priceBook(net.node);
+      const native = await rpc(net.node, 'getcurrency', [net.native]);
+      const quote = await rpc(net.node, 'estimateconversion', [
+        { currency: net.native, convertto: 'DAI.vETH', via: 'bridge.veth', amount: 1 },
+      ]);
+
+      return {
+        unit: UNIT_LABEL,
+        priced: [...book.keys()],
+        nativeId: native.currencyid,
+        mid: book.get(native.currencyid) ?? null,
+        quoted: quote?.estimatedcurrencyout ?? null,
+        formatted: [value(60.0449), value(0.0004), value(0), value(12345.678), value(-1), value('x')],
+      };
+    });
+
+    expect(out.unit).toBe('DAI');
+    expect(out.priced.length, 'the basket priced nothing').toBeGreaterThanOrEqual(4);
+    expect(out.mid, 'the native coin has no price').toBeGreaterThan(0);
+    expect(out.quoted, 'the node would not quote the conversion').toBeGreaterThan(0);
+
+    // Within 5%. The gap is the conversion fee, and it is nowhere near the
+    // factor of 1/x² that an inverted ratio would produce.
+    const drift = Math.abs(out.mid - out.quoted) / out.quoted;
+    expect(drift, `mid ${out.mid} against quote ${out.quoted}`).toBeLessThan(0.05);
+
+    // Two decimals for a price; more only below a cent, where rounding to 0.00
+    // would say a holding is worth nothing. Never a number for nonsense.
+    expect(out.formatted).toEqual(['60.04', '0.0004', '0.00', '12,345.68', null, null]);
+  });
+});
+
+test('an unpriceable holding shows no value rather than a wrong one', async () => {
+  // Anybody can define a currency on Verus, and most of them have no route to
+  // the basket. The measured case was sixteen holdings with one price. The rule
+  // is that the wallet says nothing about the other fifteen — the failure worth
+  // preventing is a confident zero.
+  await withExtension(async ({ context, extensionId }) => {
+    const out = await inPage(context, extensionId, async () => {
+      const { NETWORKS } = await import('../lib/rpc.js');
+      const { priceBook } = await import('../lib/price.js');
+      const book = await priceBook(NETWORKS.VRSCTEST.node);
+      // A currency id that is real, held by the test address, and not a reserve
+      // of bridge.vETH.
+      const INVENTED = 'iFhnaURhtBLFdtGcTwi5GHxpoSpqjKfWmP';
+      return { known: book.size, unpriced: book.has(INVENTED), zero: book.get(INVENTED) };
+    });
+
+    expect(out.known).toBeGreaterThan(0);
+    expect(out.unpriced, 'a currency outside the basket must not get a price').toBe(false);
+    // Not 0 — `undefined`. A zero would render as "≈ 0.00" and claim the
+    // holding is worthless.
+    expect(out.zero).toBeUndefined();
+  });
+});
+
+// --- owning a wallet -------------------------------------------------------
+//
+// Three defects that were not interface problems: a key that could not be
+// backed up, a second account that could not be reached, and real money dressed
+// identically to play money.
+
+test('a key can be backed up, and what comes out is the key', async () => {
+  // "It printed a string" proves nothing — the failure that matters here is a
+  // reveal that shows the wrong key, or a mangled one, which would look
+  // completely fine and would be discovered only by someone trying to restore
+  // from it. So the revealed WIF is fed back through the SDK and the address it
+  // derives is compared to the address the wallet has been showing.
+  await withExtension(async ({ context, extensionId }) => {
+    const popup = await context.newPage();
+    await popup.setViewportSize({ width: 360, height: 1400 });
+    await popup.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
+    await expect(popup.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
+    await createKey(popup, 'savings', 'correct horse battery');
+
+    const shown = await popup.locator('.acct-addr [data-address]').getAttribute('data-address');
+    expect(shown).toMatch(/^R[1-9A-HJ-NP-Za-km-z]{33}$/);
+
+    await popup.getByRole('button', { name: /Manage keys/ }).click();
+    await popup.getByRole('button', { name: 'Back up' }).click();
+
+    // A wrong passphrase must not reveal anything, and must not be reported in
+    // a way that says how close it was.
+    await popup.locator('.reveal input[type=password]').fill('not the passphrase');
+    await popup.getByRole('button', { name: 'Reveal' }).click();
+    await expect(popup.locator('.reveal .status')).toContainText(/wrong passphrase/i);
+    expect(await popup.locator('.secret').count(), 'a wrong passphrase revealed something').toBe(0);
+
+    await popup.locator('.reveal input[type=password]').fill('correct horse battery');
+    await popup.getByRole('button', { name: 'Reveal' }).click();
+    const wif = (await popup.locator('.secret').textContent({ timeout: 15_000 })).trim();
+    expect(wif.length).toBeGreaterThan(40);
+
+    const derived = await popup.evaluate(async (text) => {
+      const { default: init, Key } = await import('../vendor/verus-wasm/verus_wasm.js');
+      await init();
+      const key = Key.fromWif(text);
+      try {
+        return key.address();
+      } finally {
+        key.free();
+      }
+    }, wif);
+
+    expect(derived, 'the revealed key does not derive the address it was shown for').toBe(shown);
+
+    // And the warning is where the decision is, not in a README.
+    await expect(popup.getByText(/Anyone who reads this owns the coins/i)).toBeVisible();
+  });
+});
+
+test('a second key is reachable, which it was not', async () => {
+  // The regression this locks down: `view.key` was only ever assigned at
+  // creation, at import, or defaulted to the key already showing — so home was
+  // pinned to whichever key was added last, and the other one could be created,
+  // stored, and then never displayed again.
+  await withExtension(async ({ context, extensionId }) => {
+    const popup = await context.newPage();
+    await popup.setViewportSize({ width: 360, height: 1400 });
+    await popup.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
+    await expect(popup.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
+
+    await createKey(popup, 'savings', 'correct horse battery');
+    const first = await popup.locator('.acct-addr [data-address]').getAttribute('data-address');
+
+    await popup.getByRole('button', { name: /Manage keys/ }).click();
+    await popup.getByText('new key').click();
+    await popup.locator('input[placeholder="label"]').first().fill('spending');
+    await popup.locator('input[placeholder="passphrase"]').first().fill('correct horse battery');
+    await popup.getByRole('button', { name: 'create key' }).click();
+    await expect(popup.getByText('spending').first()).toBeVisible({ timeout: 15_000 });
+
+    // Home now shows the newest key — which is the state that used to be
+    // permanent.
+    const second = await popup.locator('.acct-addr [data-address]').getAttribute('data-address');
+    expect(second).not.toBe(first);
+
+    await popup.getByRole('button', { name: /Change account/ }).click();
+    await popup.getByRole('button', { name: /savings/ }).click();
+
+    await expect
+      .poll(async () => popup.locator('.acct-addr [data-address]').first().getAttribute('data-address'))
+      .toBe(first);
+  });
+});
+
+test('mainnet does not look like testnet', async () => {
+  await withExtension(async ({ context, extensionId }) => {
+    const popup = await context.newPage();
+    await popup.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
+    await expect(popup.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
+
+    // Every token a person actually sees, read off computed style rather than
+    // off the stylesheet. The first version of this test checked only the body
+    // background and passed while the interface was still green: fifteen greens
+    // were baked into rules instead of tokens, so the frames changed chain and
+    // the wallet did not. Sampling one property is how that got through.
+    const dress = () =>
+      popup.evaluate(() => {
+        const root = getComputedStyle(document.documentElement);
+        const token = (name) => root.getPropertyValue(name).trim();
+        return {
+          chain: document.documentElement.getAttribute('data-chain'),
+          rail: document.querySelector('.chain-rail')?.textContent ?? null,
+          ground: getComputedStyle(document.body).backgroundColor,
+          // What the chain is allowed to change.
+          chainful: [
+            'accent', 'value', 'frame', 'title', 'muted', 'bg', 'bg-panel',
+            'hair', 'hair-dot', 'tint', 'tint-strong', 'dot-token',
+            'avatar-from', 'skel-a', 'skel-b', 'skel-flat',
+          ].map((n) => token(`--${n}`)),
+          // What it must not: destruction, warnings, and the pair that says
+          // whether you or a website started this.
+          semantic: ['danger', 'warn', 'prov-local', 'prov-site'].map((n) => token(`--${n}`)),
+        };
+      });
+
+    const test = await dress();
+    expect(test.chain).toBe('test');
+    expect(test.rail, 'testnet must not carry a real-funds rail').toBeNull();
+
+    // The confirmation is one-way and this is the direction that asks.
+    popup.once('dialog', (d) => {
+      expect(d.message()).toMatch(/real VRSC/i);
+      d.accept();
+    });
+    await popup.locator('select.chip').selectOption('VRSC');
+
+    await expect.poll(async () => (await dress()).chain).toBe('real');
+    const main = await dress();
+    expect(main.rail).toMatch(/real funds/i);
+    expect(main.ground, 'the two chains render the same ground').not.toBe(test.ground);
+
+    // Not "some of it differs" — every single one, or a token was left behind.
+    const stayed = main.chainful
+      .map((value, i) => (value === test.chainful[i] ? i : null))
+      .filter((i) => i !== null);
+    expect(stayed, `${stayed.length} chain token(s) did not change`).toEqual([]);
+
+    // And the meanings that have to survive a change of chain did.
+    expect(main.semantic, 'a semantic colour moved with the chain').toEqual(test.semantic);
+  });
+});
+
+test('switching back to testnet does not ask', async () => {
+  // A prompt that appears in both directions is one people learn to dismiss
+  // without reading, which costs more than it buys.
+  await withExtension(async ({ context, extensionId }) => {
+    const popup = await context.newPage();
+    await popup.goto(`chrome-extension://${extensionId}/src/ui/popup.html`);
+    await expect(popup.getByText('Make a wallet')).toBeVisible({ timeout: 30_000 });
+
+    popup.once('dialog', (d) => d.accept());
+    await popup.locator('select.chip').selectOption('VRSC');
+    await expect.poll(() => popup.evaluate(() => document.documentElement.dataset.chain)).toBe('real');
+
+    let asked = false;
+    popup.on('dialog', (d) => {
+      asked = true;
+      d.accept();
+    });
+    await popup.locator('select.chip').selectOption('VRSCTEST');
+    await expect.poll(() => popup.evaluate(() => document.documentElement.dataset.chain)).toBe('test');
+    expect(asked, 'going back to testnet asked for confirmation').toBe(false);
+  });
+});
+
+test('a session unlock holds derived bits, not the passphrase and not the key', async () => {
+  // What is cached is the thing that decides how much a compromise of it is
+  // worth. This asserts the shape directly, because it is the entire security
+  // argument for the feature existing.
+  await withExtension(async ({ context, extensionId }) => {
+    const out = await inPage(context, extensionId, async () => {
+      const { seal, unlockBits, openWith, bitsToText } = await import('../lib/vault.js');
+      const { hold, held, release, minutesLeft } = await import('../lib/session.js');
+
+      const PASS = 'correct horse battery';
+      const WIF = 'UqYFzC8vJTAyMPYNQnRhqKZ2FiXMmyMYm2WMrWNRj6PmXbjuMYPq';
+      const envelope = await seal('probe', 'RXdSvjZgRrNjtxVHEm13TH1pVTjt1obzKU', WIF, PASS);
+
+      let wrong = null;
+      try {
+        await unlockBits(envelope, 'not it');
+      } catch (error) {
+        wrong = error.message;
+      }
+      // Nothing stored on a failure: the verification happens before the caller
+      // ever gets bits to hold.
+      const afterWrong = await held('probe');
+
+      const bits = await unlockBits(envelope, PASS);
+      await hold('probe', bitsToText(bits));
+      const kept = await held('probe');
+
+      const raw = await chrome.storage.session.get('verus-wallet.unlock');
+      const stored = JSON.stringify(raw);
+
+      // The cached bits still open the envelope, so this is a shortcut past the
+      // typing rather than past the check.
+      const opened = await openWith(envelope, bits);
+
+      await release('probe');
+      return {
+        wrong,
+        afterWrong,
+        minutes: minutesLeft(kept.until),
+        opened,
+        holdsPassphrase: stored.includes(PASS),
+        holdsWif: stored.includes(WIF),
+        released: await held('probe'),
+        onDisk: Object.keys(await chrome.storage.local.get(null)),
+      };
+    });
+
+    expect(out.wrong).toMatch(/wrong passphrase/i);
+    expect(out.afterWrong, 'a failed unlock was stored').toBeNull();
+    expect(out.minutes).toBeGreaterThan(0);
+    expect(out.minutes).toBeLessThanOrEqual(5);
+    expect(out.opened, 'the cached bits do not open the envelope').toBe(
+      'UqYFzC8vJTAyMPYNQnRhqKZ2FiXMmyMYm2WMrWNRj6PmXbjuMYPq',
+    );
+    expect(out.holdsPassphrase, 'the passphrase is in session storage').toBe(false);
+    expect(out.holdsWif, 'the private key is in session storage').toBe(false);
+    expect(out.released, 'Lock now left the unlock behind').toBeNull();
+    // storage.session is memory; nothing about an unlock may reach the disk.
+    expect(out.onDisk).not.toContain('verus-wallet.unlock');
   });
 });

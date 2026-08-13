@@ -62,7 +62,16 @@ const SKIP = [
  * The wasm module is reached by an `import` inside `approve.js` and `popup.js`;
  * from the manifest's point of view it does not exist.
  */
-const REQUIRED = ['src/vendor/verus-wasm/verus_wasm.js', 'src/vendor/verus-wasm/verus_wasm_bg.wasm'];
+const REQUIRED = [
+  'src/vendor/verus-wasm/verus_wasm.js',
+  'src/vendor/verus-wasm/verus_wasm_bg.wasm',
+  // Committed rather than built, so it cannot go missing the way the wasm can —
+  // but the Receive screen imports it, and an extension that throws on Receive
+  // is not one to find out about after uploading. See src/vendor/qr/README.md.
+  'src/vendor/qr/uqr.mjs',
+  // MIT requires the notice to travel with the copy, including into the zip.
+  'src/vendor/qr/LICENSE',
+];
 
 // --- read the manifest ------------------------------------------------------
 

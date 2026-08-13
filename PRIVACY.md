@@ -36,6 +36,24 @@ you open it. A public address is public by definition.
 
 **Which network you selected.** Testnet or mainnet.
 
+**A session unlock, in memory only, if you ask for one.** Ticking "stay
+unlocked" on an approval keeps the wallet from asking for that passphrase again
+for five minutes. What is kept is neither the passphrase nor the private key: it
+is the 256 bits that PBKDF2 derives for that one encrypted key, which are
+useless against anything else and cannot be tried as a password anywhere. They
+are held in `chrome.storage.session`, which never touches disk and which the
+browser clears when it closes, and they are restricted to the extension's own
+pages — a script running on a website cannot read them. "Lock now" on the
+approval window erases them immediately.
+
+**Addresses you have paid.** The last five destinations of transactions you
+actually broadcast, per network, so the send form can offer them back instead of
+asking you to paste an address again. Stored as you typed them — a VerusID name
+stays a name. They are recorded only once a transaction has been accepted by the
+node, never from what you type, and you can erase them at any time with the
+"clear" control beside them on the send screen. Nothing about them is
+transmitted; they are already part of this wallet's own on-chain history.
+
 **VerusID registrations that are part-finished.** Claiming a name on Verus takes
 two transactions, a block apart. The salt that links them exists only in this
 record and cannot be recovered from the blockchain by anyone, including us. If
@@ -73,6 +91,16 @@ that transmits them.
 Be aware of what a public blockchain is: once a transaction is broadcast, it is
 permanently and publicly recorded, and it is not private. That is a property of
 the blockchain, not of this extension.
+
+### Block explorer links
+
+Each row in the activity list links to that transaction on a public block
+explorer — `testex.verus.io` for testnet, `insight.verus.io` for mainnet. The
+extension never fetches those addresses: nothing is loaded, prefetched or pinged
+in the background, and no request reaches either host unless you click a link.
+If you do, it opens in a new tab like any other link, and that site then sees
+your IP address and which transaction you looked at, under its own policy rather
+than this one.
 
 ## What websites can see
 

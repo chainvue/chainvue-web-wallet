@@ -16,30 +16,100 @@
  * which is the failure this whole mechanism exists to prevent. Both values were
  * resolved against their own node, not typed from memory. See `lib/halt.js`.
  */
+/**
+ * `explorerTx` is a prefix, and the wallet never fetches it.
+ *
+ * It is only ever put on an anchor the user can choose to click, because doing
+ * so tells a third party which transaction someone is looking at from which IP.
+ * That is a fair trade when it is asked for and not one to make on their behalf,
+ * so nothing here is loaded, prefetched or pinged in the background.
+ *
+ * Both hosts run insight-ui, whose routes are client-side: `/tx/<txid>` is a
+ * 404 and `#/tx/<txid>` is the transaction. Confirmed against each host rather
+ * than typed from memory — `testex` reports `testnet: true` and `insight`
+ * reports the VRSC chain.
+ */
 export const NETWORKS = Object.freeze({
   VRSCTEST: {
     label: 'VRSCTEST',
     node: 'https://api.verustest.net',
     native: 'VRSCTEST',
+    explorerTx: 'https://testex.verus.io/#/tx/',
+    real: false,
     oracle: { identity: 'VRSCTEST@', upgradeKey: 'iH51dFy7vF3LTRuVQvCTVu6QSbYfhTjek8' },
   },
   VRSC: {
     label: 'VRSC',
     node: 'https://api.verus.services',
     native: 'VRSC',
+    explorerTx: 'https://insight.verus.io/#/tx/',
+    // The one field the whole interface changes colour on. A wallet where a
+    // screen that spends real money is pixel-identical to one that spends play
+    // money is a wallet that will eventually be used on the wrong chain — and
+    // the difference was five characters of text in a single chip.
+    real: true,
     oracle: { identity: 'VRSC@', upgradeKey: 'iSJ38vYX7qoCtotc9wBHb1vZdR3oTgoHCX' },
   },
 });
 
 const NETWORK_KEY = 'verus-wallet.network';
 
+/**
+ * A synchronous mirror of the selected chain, for the paint before the read.
+ *
+ * `chrome.storage.local` is async, so the chain is not known until a promise
+ * resolves — and in the popup that is after the 918 KB wasm module has
+ * instantiated. The document is on screen for all of that, wearing whichever
+ * palette the stylesheet defaults to.
+ *
+ * On mainnet that means a visible flash of the testnet colours on the one screen
+ * whose entire job is to be unmistakable, which gives back most of what the
+ * colour was for. `localStorage` is synchronous and available in an extension
+ * page, so it can answer at module-evaluation time; it is a cache of an
+ * authoritative value and never the value itself — every read of what chain we
+ * are on still goes through `currentNetwork`.
+ */
+const MIRROR = 'verus-wallet.network.cached';
+
+function remember(label) {
+  try {
+    localStorage.setItem(MIRROR, label);
+  } catch {
+    // A private mode or a locked-down profile can refuse. The cost is the flash
+    // this exists to avoid, which is not a reason to fail.
+  }
+}
+
+/**
+ * Stamp the chain on the root element. Safe to call before anything is awaited.
+ *
+ * Called again by the popup after the real read, so a stale mirror corrects
+ * itself within the same tick rather than persisting.
+ */
+export function applyChain(label = null) {
+  let chosen = label;
+  if (!chosen) {
+    try {
+      chosen = localStorage.getItem(MIRROR);
+    } catch {
+      chosen = null;
+    }
+  }
+  const real = Boolean(NETWORKS[chosen]?.real);
+  document.documentElement.setAttribute('data-chain', real ? 'real' : 'test');
+  return real;
+}
+
 export async function currentNetwork() {
   const stored = await chrome.storage.local.get(NETWORK_KEY);
-  return NETWORKS[stored[NETWORK_KEY]] ?? NETWORKS.VRSCTEST;
+  const net = NETWORKS[stored[NETWORK_KEY]] ?? NETWORKS.VRSCTEST;
+  remember(net.label);
+  return net;
 }
 
 export async function setNetwork(label) {
   if (!NETWORKS[label]) throw new Error(`unknown network: ${label}`);
+  remember(label);
   await chrome.storage.local.set({ [NETWORK_KEY]: label });
 }
 
@@ -231,52 +301,131 @@ function canSignFor(row, address) {
  * What this address has recently done.
  *
  * The most common question a wallet is opened to answer after "what do I have"
- * is "did it go through", and until now there was no way to ask it here at all.
+ * is "did it go through", and a list that shows only settled history cannot
+ * answer it: the minutes when somebody most wants to know are exactly the
+ * minutes their transaction is still in the mempool and therefore absent.
  *
- * `getaddressdeltas` reports one row per output touched, so a single
- * transaction appears several times — a spend and its change are two rows of
- * the same txid with opposite signs. Netting per txid is what turns that into
- * something a person recognises: one line, one direction, one amount.
+ * So three reads, in parallel:
  *
- * Deliberately shallow. This is a glance, not an accounting record: the newest
- * few, native amounts only, and no attempt to name a counterparty — an address
- * a transaction paid is not the same thing as who was paid.
+ *   getaddressdeltas   what has confirmed — one row per output touched
+ *   getaddressmempool  what has not confirmed yet, which the deltas never show
+ *   getblockcount      the tip, so a height becomes a confirmation count
+ *
+ * A single transaction appears several times in the deltas — a spend and its
+ * change are two rows of the same txid with opposite signs — so netting per
+ * txid is what turns that into something a person recognises: one line, one
+ * direction, one amount.
+ *
+ * Still deliberately shallow: the newest few, native amounts only. Naming who
+ * was paid needs the whole transaction and is a second read, kept out of here
+ * so the list can paint before it — see `counterparty`.
  */
 export async function recentActivity(node, address, limit = 4) {
-  let deltas;
-  try {
-    deltas = await rpc(node, 'getaddressdeltas', [{ addresses: [address] }]);
-  } catch {
-    return []; // an older node without the index is not an error worth showing
-  }
-  if (!Array.isArray(deltas)) return [];
+  const quietly = (method, params) => rpc(node, method, params).catch(() => null);
+
+  const [deltas, mempool, tip] = await Promise.all([
+    // NOT caught, unlike the other two. A failure here used to become an empty
+    // list, which the popup renders as "nothing yet" — so an unreachable node
+    // told somebody they had never been paid. Letting it throw is what makes the
+    // caller able to say "activity unavailable", which is the true statement.
+    rpc(node, 'getaddressdeltas', [{ addresses: [address] }]),
+    // These two only ever add to the answer: without the mempool nothing is
+    // marked pending, and without the tip nothing claims a confirmation count.
+    // Both degrade towards "not confirmed yet", which is the safe way to be
+    // wrong about money that may not have arrived.
+    quietly('getaddressmempool', [{ addresses: [address] }]),
+    quietly('getblockcount', []),
+  ]);
 
   const byTx = new Map();
-  for (const delta of deltas) {
-    const txid = delta?.txid;
-    if (!txid) continue;
-    const entry = byTx.get(txid) ?? { txid, satoshis: 0, time: 0, height: 0 };
-    entry.satoshis += Number(delta.satoshis) || 0;
-    entry.time = Math.max(entry.time, Number(delta.blocktime) || 0);
-    entry.height = Math.max(entry.height, Number(delta.height) || 0);
-    byTx.set(txid, entry);
-  }
+
+  const net = (rows, pending) => {
+    if (!Array.isArray(rows)) return;
+    for (const delta of rows) {
+      const txid = delta?.txid;
+      if (!txid) continue;
+      // A transaction seen in both is one that confirmed between the two reads.
+      // The confirmed row is the truthful one, so it wins.
+      const entry = byTx.get(txid) ?? { txid, satoshis: 0, time: 0, height: 0, pending };
+      if (entry.pending && !pending) entry.pending = false;
+      entry.satoshis += Number(delta.satoshis) || 0;
+      // Mempool rows carry `timestamp` (when it was seen) and no block time.
+      entry.time = Math.max(entry.time, Number(delta.blocktime) || Number(delta.timestamp) || 0);
+      entry.height = Math.max(entry.height, Number(delta.height) || 0);
+      byTx.set(txid, entry);
+    }
+  };
+
+  net(deltas, false);
+  net(mempool, true);
+
+  const height = Number(tip) || 0;
 
   return [...byTx.values()]
     // A transaction that nets to zero only moved value between this address's
     // own outputs. "Moved 0" is not information, so it is not a row.
     .filter((entry) => entry.satoshis !== 0)
-    .sort((a, b) => b.height - a.height || b.time - a.time)
+    // Unconfirmed first: it is the one being waited on.
+    .sort((a, b) => Number(b.pending) - Number(a.pending) || b.height - a.height || b.time - a.time)
     .slice(0, limit)
     .map((entry) => ({
       txid: entry.txid,
       time: entry.time,
       height: entry.height,
+      pending: entry.pending,
+      // Zero when the tip is unknown, which reads as "not confirmed yet" — the
+      // safe way round to be wrong about money that may not have arrived.
+      confirmations: entry.pending || !height || !entry.height ? 0 : height - entry.height + 1,
       // The sign is the direction. A net of zero is a transaction that only
       // moved value between this address's own outputs.
       direction: entry.satoshis > 0 ? 'in' : 'out',
       coins: Math.abs(entry.satoshis) / 1e8,
     }));
+}
+
+/**
+ * Who was on the other end, as far as the chain can say.
+ *
+ * "Sent 12.5" answers half a question. The half that makes somebody sure their
+ * payment went to the right place is where it went, and that is one address
+ * away: `getrawtransaction` verbose carries `vin[].address` and
+ * `vout[].scriptPubKey.addresses` on a node with the address index on — which
+ * is the same index `getaddressdeltas` already needs, so this asks for nothing
+ * new to be enabled.
+ *
+ * Money going out means the counterparty is an output that is NOT ours; money
+ * coming in means it is an input that is not ours. Change is excluded by that
+ * rule alone, without having to recognise it.
+ *
+ * Returns null rather than a guess whenever the chain does not say — a coinbase
+ * has no input address, and a shielded input has none by design. A wallet that
+ * invented a plausible name for those would be lying at exactly the moment it
+ * is being trusted.
+ *
+ * Separate from `recentActivity` and called per row, because it is one extra
+ * read per transaction and the list must not wait on any of them to paint.
+ */
+export async function counterparty(node, txid, address) {
+  let tx;
+  try {
+    tx = await rpc(node, 'getrawtransaction', [txid, 1]);
+  } catch {
+    return null;
+  }
+
+  const from = (side) => {
+    const found = [];
+    for (const entry of side ?? []) {
+      const addresses = entry?.addresses ?? entry?.scriptPubKey?.addresses ?? [];
+      for (const one of addresses) if (one && one !== address && !found.includes(one)) found.push(one);
+    }
+    return found;
+  };
+
+  const outgoing = from(tx?.vout);
+  const incoming = from(tx?.vin);
+
+  return { paid: outgoing, paidBy: incoming };
 }
 
 const nameCache = new Map();

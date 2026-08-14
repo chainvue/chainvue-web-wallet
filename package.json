@@ -12,6 +12,7 @@
     "bump": "node scripts/version.mjs",
     "package": "npm run build:wasm && node scripts/package.mjs",
     "package:zip": "node scripts/package.mjs",
+    "screenshots": "node scripts/screenshots.mjs",
     "test": "playwright test --config tests/playwright.config.mjs",
     "test:unit": "node --test tests/convert.test.mjs tests/halt.test.mjs"
   },

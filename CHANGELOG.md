@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.3.0](https://github.com/chainvue/chainvue-web-wallet/compare/v0.2.0...v0.3.0) (2026-08-14)
+
+
+### Features
+
+* back up a key, switch accounts, and tell the two chains apart ([0f85c34](https://github.com/chainvue/chainvue-web-wallet/commit/0f85c34386f23b6114afe20adc20f8384c30534b))
+
+
+### Fixes
+
+* a release cut by the bot built nothing ([e39d2a7](https://github.com/chainvue/chainvue-web-wallet/commit/e39d2a7229a1192a4259b163f123ae7b4b8233da))
+* sharp store screenshots, and a back button that stretched ([dc74145](https://github.com/chainvue/chainvue-web-wallet/commit/dc741453cbf58d75cf8aef8326474cc4704dce60))
+
+
+### Documentation
+
+* show the wallet, and an install that needs no toolchain ([c433914](https://github.com/chainvue/chainvue-web-wallet/commit/c433914f28353a23a0bca6a7f3a7a32bca7fd7f3))
+* store screenshots ([8511770](https://github.com/chainvue/chainvue-web-wallet/commit/8511770934d9aff6682b88489f13931240b8fb24))
+
 ## [0.2.0](https://github.com/chainvue/chainvue-web-wallet/compare/chainvue-web-wallet-v0.1.0...chainvue-web-wallet-v0.2.0) (2026-08-12)
 
 

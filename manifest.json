@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "chainvue web wallet",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Non-custodial Verus wallet. Keys stay in the browser; every transaction is shown decoded before it is signed.",
   "minimum_chrome_version": "116",
   "permissions": [

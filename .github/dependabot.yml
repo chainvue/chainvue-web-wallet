@@ -1,0 +1,58 @@
+# Dependabot for the Chainvue web wallet (browser extension).
+#
+# Ecosystems found in the repo: npm at "/" (package.json + package-lock.json —
+# tooling only, the extension itself ships no npm runtime dependencies), cargo
+# at "/wasm" (the cdylib wrapper around the SDK's wasm bindings) and
+# github-actions at "/" (release.yml, release-please.yml).
+#
+# Commit-message prefixes follow release-please's conventional-commit sections:
+# chore(deps-dev) stays out of the changelog, fix(deps) shows up as a fix.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+      include: scope
+
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: fix
+      prefix-development: chore
+      include: scope
+    groups:
+      # Playwright's browser downloads are tied to the runner version, so the
+      # test packages move together. Same reasoning as the peculium-wallet
+      # incident, where a bump of `vitest` without `@vitest/coverage-v8` left a
+      # peer mismatch that broke CI; there is no vitest in this repo — the
+      # tests run on playwright and node:test.
+      playwright:
+        patterns:
+          - "@playwright/*"
+          - playwright
+          - playwright-core
+      dev-dependencies:
+        dependency-type: development
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: cargo
+    directory: "/wasm"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: fix
+      prefix-development: chore
+      include: scope
+    ignore:
+      # verus-wasm is pinned by revision on purpose: pecu-cli pins the same
+      # commit so the CLI and the wallet cannot drift into signing different
+      # bytes. Moving it is a deliberate, coordinated change. The entry stays
+      # so the lockfile is still watched for advisories.
+      - dependency-name: verus-wasm
